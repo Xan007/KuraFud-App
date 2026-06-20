@@ -2,18 +2,24 @@ import type { ProductInfo } from "types";
 
 const BASE_URL = "https://world.openfoodfacts.org/api/v0/product";
 
-// Cache en memoria para evitar re-fetchear productos ya vistos
 const productCache = new Map<string, ProductInfo>();
 
+/**
+ * Looks up a product by its barcode on Open Food Facts.
+ *
+ * Tries multiple barcode variants (UPC-A → EAN-13 with leading zero and
+ * vice-versa) to maximise the chance of a match.  Results are cached in
+ * memory to avoid repeated network requests for the same code.
+ *
+ * @param barcode - The scanned barcode string.
+ * @returns The parsed `ProductInfo`, or `null` when the product is not found.
+ */
 export async function lookupProduct(
   barcode: string,
 ): Promise<ProductInfo | null> {
-  // Generar variantes del código de barras por si el formato difiere
   const variants = [barcode];
 
-  // UPC-A (12 dígitos) → algunos productos están como EAN-13 (13 dígitos con 0 al inicio)
   if (/^\d{12}$/.test(barcode)) variants.push(`0${barcode}`);
-  // EAN-13 con 0 al inicio → probar sin el cero (UPC-A)
   if (/^0\d{12}$/.test(barcode)) variants.push(barcode.slice(1));
 
   const tried = new Set<string>();
@@ -33,7 +39,7 @@ export async function lookupProduct(
         return parsed;
       }
     } catch {
-      // ignorar error, probar siguiente variante
+      /* try the next variant */
     }
   }
 
@@ -51,7 +57,6 @@ function parseProduct(data: any, barcode: string): ProductInfo {
   const imageIngredientsUrl = p.image_ingredients_url || "";
   const servingQty = p.serving_quantity ? Number(p.serving_quantity) : null;
 
-  // Numero de porciones por envase
   let servingsPerContainer: string | null = null;
   if (p.no_servings || p.servings_per_container) {
     servingsPerContainer = String(p.no_servings || p.servings_per_container);

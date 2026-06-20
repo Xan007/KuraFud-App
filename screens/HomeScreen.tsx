@@ -9,6 +9,7 @@ import {
   View,
 } from "react-native";
 
+/** Home screen with a welcome message and a button to start scanning barcodes. */
 export default function HomeScreen() {
   const { width, height } = useWindowDimensions();
   const router = useRouter();

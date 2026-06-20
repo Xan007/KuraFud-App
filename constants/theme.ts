@@ -1,3 +1,4 @@
+/** Centralised colour palette used across every screen and component. */
 export const Colors = {
   primary: "#34A853",
   background: "#FAFAFA",
@@ -10,6 +11,7 @@ export const Colors = {
   error: "#EF4444",
 } as const;
 
+/** Spacing tokens for consistent layout. */
 export const Spacing = {
   xs: 4,
   sm: 8,
@@ -18,6 +20,7 @@ export const Spacing = {
   xl: 24,
 } as const;
 
+/** Font-size scale used throughout the app. */
 export const FontSize = {
   sm: 12,
   md: 14,

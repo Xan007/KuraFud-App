@@ -10,18 +10,15 @@ import Carousel from "react-native-reanimated-carousel";
 import { Image } from "expo-image";
 import { Colors } from "@/constants/theme";
 
-// ─── Punto animado ────────────────────────────────────────
-
-function Dot({
-  index,
-  progress,
-}: {
+type DotProps = {
   index: number;
   progress: SharedValue<number>;
-}) {
+};
+
+function Dot({ index, progress }: DotProps) {
   const animStyle = useAnimatedStyle(() => {
     const dist = Math.abs(progress.value - index);
-    const t = Math.max(0, 1 - dist); // 1 = activo, 0 = inactivo
+    const t = Math.max(0, 1 - dist);
     return {
       width: withSpring(7 + t * 11, { damping: 18, stiffness: 120 }),
       opacity: withSpring(0.35 + t * 0.65, { damping: 18 }),
@@ -31,10 +28,9 @@ function Dot({
   return <Animated.View style={[styles.dot, animStyle]} />;
 }
 
-// ─── Carrusel ──────────────────────────────────────────────
-
 type Props = { images: string[] };
 
+/** Animated image carousel with pagination dots and a page counter. */
 export default function ProductImages({ images }: Props) {
   const { width: screenWidth } = useWindowDimensions();
   const progress = useSharedValue(0);

@@ -1,23 +1,70 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Platform, ToastAndroid, Alert, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
 import Animated, { FadeIn } from "react-native-reanimated";
-import {
-  ActivityIndicator,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { ActivityIndicator, Pressable, Text } from "react-native";
+import { Image as ExpoImage } from "expo-image";
+import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
+import { SymbolView } from "expo-symbols";
 import {
   useCameraDevice,
   useCameraPermission,
+  usePhotoOutput,
   type CameraRef,
 } from "react-native-vision-camera";
 import { useBarcodeScannerOutput } from "react-native-vision-camera-barcode-scanner";
 import { Colors } from "@/constants/theme";
+import { lookupProduct } from "services/productService";
+import { detectDateFromPhoto } from "services/dateDetection";
+import type { ProductInfo } from "types";
+import { formatDateString } from "@/helpers/format";
+import { Host } from "@expo/ui";
+import DateTimePicker from "@expo/ui/community/datetime-picker";
 import CameraSection from "@/components/CameraSection";
+import type { CameraLayout } from "@/components/CameraSection";
+import ProductSheet from "@/components/ProductSheet";
+import DateScannerOverlay from "@/components/DateScannerOverlay";
 
+/* -------------------------------------------------------------------------- */
+/*  Types                                                                     */
+/* -------------------------------------------------------------------------- */
+
+type ScanState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "found"; product: ProductInfo; date?: string }
+  | { status: "not-found" }
+  | { status: "scanning-date"; product: ProductInfo }
+  | {
+      status: "processing-date";
+      product: ProductInfo;
+      previewUri?: string;
+    };
+
+type GuideRect = { x: number; y: number; width: number; height: number };
+
+/* -------------------------------------------------------------------------- */
+/*  Helpers                                                                   */
+/* -------------------------------------------------------------------------- */
+
+function showToast(msg: string) {
+  if (Platform.OS === "android") {
+    ToastAndroid.show(msg, ToastAndroid.SHORT);
+  } else {
+    Alert.alert("", msg);
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Screen                                                                    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Full barcode scanner screen.  It manages camera state, barcode detection,
+ * product lookup via Open Food Facts, and an optional date-scanning flow
+ * where the user takes a picture of the expiration date.
+ */
 export default function BarcodeScannerScreen() {
   const router = useRouter();
   const [cameraPosition, setCameraPosition] = useState<"back" | "front">(
@@ -25,45 +72,68 @@ export default function BarcodeScannerScreen() {
   );
   const [torch, setTorch] = useState<"off" | "on">("off");
   const [zoomLabel, setZoomLabel] = useState("1.0x");
+  const [scanState, setScanState] = useState<ScanState>({ status: "idle" });
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [pendingDate, setPendingDate] = useState(new Date());
 
   const cameraRef = useRef<CameraRef>(null);
   const isScanningRef = useRef(true);
   const lastZoomRef = useRef("1.0x");
+  const scanStateRef = useRef(scanState);
+  scanStateRef.current = scanState;
+  const guideRectRef = useRef<GuideRect | null>(null);
+  const cameraLayoutRef = useRef<CameraLayout | null>(null);
 
   const device = useCameraDevice(cameraPosition);
   const { hasPermission, requestPermission } = useCameraPermission();
+  const photoOutput = usePhotoOutput({
+    quality: 0.9,
+    qualityPrioritization: "quality",
+  });
 
-  // ─── Reset scan flag on focus ───────────────────────────
+  /* ---- Reset scan flag on focus ---- */
 
   useFocusEffect(
     useCallback(() => {
-      // Al volver al escáner, habilitamos escaneo
       isScanningRef.current = true;
       return () => {
-        // Al salir del escáner, deshabilitamos para no escanear en background
         isScanningRef.current = false;
       };
     }, []),
   );
 
-  // ─── Barcode handler ────────────────────────────────────
+  /* ---- Barcode handler ---- */
 
   const handleBarcodeScanned = useCallback(
     (barcodes: { rawValue?: string }[]) => {
+      if (scanStateRef.current.status !== "idle") return;
       if (!isScanningRef.current) return;
       const code = barcodes[0]?.rawValue;
       if (!code) return;
+
       isScanningRef.current = false;
-      router.push(`/product/${encodeURIComponent(code)}`);
+      setScanState({ status: "loading" });
+
+      lookupProduct(code)
+        .then((p) => {
+          if (p) {
+            setScanState({ status: "found", product: p });
+          } else {
+            setScanState({ status: "not-found" });
+          }
+        })
+        .catch(() => {
+          setScanState({ status: "not-found" });
+        });
     },
-    [router],
+    [],
   );
 
   const handleError = useCallback((error: Error) => {
     console.warn("Scanner error:", error);
   }, []);
 
-  // ─── Scanner setup ──────────────────────────────────────
+  /* ---- Scanner setup ---- */
 
   const barcodeOptions = useMemo(
     () => ({
@@ -75,9 +145,15 @@ export default function BarcodeScannerScreen() {
   );
 
   const scannerOutput = useBarcodeScannerOutput(barcodeOptions);
+
+  const outputs = useMemo(
+    () => [scannerOutput, photoOutput],
+    [scannerOutput, photoOutput],
+  );
+
   const insets = useSafeAreaInsets();
 
-  // ─── Camera controls ────────────────────────────────────
+  /* ---- Camera controls ---- */
 
   const toggleTorch = useCallback(() => {
     setTorch((prev) => (prev === "off" ? "on" : "off"));
@@ -90,7 +166,7 @@ export default function BarcodeScannerScreen() {
     lastZoomRef.current = "1.0x";
   }, []);
 
-  // ─── Torch sync ─────────────────────────────────────────
+  /* ---- Torch sync ---- */
 
   useEffect(() => {
     let cancelled = false;
@@ -112,7 +188,7 @@ export default function BarcodeScannerScreen() {
     };
   }, [torch, cameraPosition]);
 
-  // ─── Zoom ───────────────────────────────────────────────
+  /* ---- Zoom ---- */
 
   const getZoom = useCallback(() => {
     try {
@@ -142,8 +218,6 @@ export default function BarcodeScannerScreen() {
     setZoomLabel(lbl);
   }, [getZoom]);
 
-  // ─── Poll zoom label ────────────────────────────────────
-
   useEffect(() => {
     const interval = setInterval(() => {
       const ctrl = cameraRef.current?.controller;
@@ -159,7 +233,180 @@ export default function BarcodeScannerScreen() {
     return () => clearInterval(interval);
   }, []);
 
-  // ─── Permission denied ──────────────────────────────────
+  /* ---- Layout callbacks ---- */
+
+  const handleCameraLayout = useCallback((layout: CameraLayout) => {
+    cameraLayoutRef.current = layout;
+  }, []);
+
+  const handleGuideLayout = useCallback((rect: GuideRect) => {
+    guideRectRef.current = rect;
+  }, []);
+
+  /* ---- Date scanning handlers ---- */
+
+  const goToIdle = useCallback(() => {
+    isScanningRef.current = true;
+    setScanState({ status: "idle" });
+  }, []);
+
+  const handleScanDate = useCallback(() => {
+    const s = scanStateRef.current;
+    if (s.status === "found") {
+      guideRectRef.current = null;
+      setScanState({ status: "scanning-date", product: s.product });
+    }
+  }, []);
+
+  const handleTakePhoto = useCallback(async () => {
+    const s = scanStateRef.current;
+    if (s.status !== "scanning-date") return;
+
+    const product = s.product;
+
+    try {
+      const { filePath } = await photoOutput.capturePhotoToFile(
+        { enableShutterSound: false },
+        {},
+      );
+
+      setScanState({ status: "processing-date", product });
+
+      const fileUri = filePath.startsWith("file://")
+        ? filePath
+        : "file://" + filePath;
+
+      const imgRef = await ImageManipulator.manipulate(fileUri).renderAsync();
+      const photoW = imgRef.width;
+      const photoH = imgRef.height;
+
+      const camLayout = cameraLayoutRef.current;
+      if (!camLayout || camLayout.width <= 0 || camLayout.height <= 0) {
+        const date = await detectDateFromPhoto(filePath);
+        if (date) {
+          showToast("Fecha: " + date);
+          setScanState({ status: "found", product, date });
+        } else {
+          showToast("No se detecto fecha");
+          setScanState({ status: "found", product });
+        }
+        return;
+      }
+
+      const {
+        left: camLeft,
+        top: camTop,
+        width: camW,
+        height: camH,
+      } = camLayout;
+
+      const guide = guideRectRef.current;
+      if (!guide || guide.width <= 0 || guide.height <= 0) {
+        const date = await detectDateFromPhoto(filePath);
+        if (date) {
+          showToast("Fecha: " + date);
+          setScanState({ status: "found", product, date });
+        } else {
+          showToast("No se detecto fecha");
+          setScanState({ status: "found", product });
+        }
+        return;
+      }
+
+      const { x: gx, y: gy, width: gw, height: gh } = guide;
+
+      const relGx = gx - camLeft;
+      const relGy = gy - camTop;
+
+      const coverScale = Math.max(camW / photoW, camH / photoH);
+      const overflowX = Math.max(0, (photoW * coverScale - camW) / 2);
+      const overflowY = Math.max(0, (photoH * coverScale - camH) / 2);
+
+      let cropX = (relGx + overflowX) / coverScale;
+      let cropY = (relGy + overflowY) / coverScale;
+      let cropW = gw / coverScale;
+      let cropH = gh / coverScale;
+
+      const expandW = cropW * 0.2;
+      const expandH = cropH * 0.2;
+      cropX = Math.max(0, cropX - expandW);
+      cropY = Math.max(0, cropY - expandH);
+      cropW = Math.min(photoW - cropX, cropW + expandW * 2);
+      cropH = Math.min(photoH - cropY, cropH + expandH * 2);
+
+      const manip = ImageManipulator.manipulate(fileUri);
+      manip.crop({
+        originX: cropX,
+        originY: cropY,
+        width: cropW,
+        height: cropH,
+      });
+      const rendered = await manip.renderAsync();
+      const result = await rendered.saveAsync({
+        format: SaveFormat.JPEG,
+        compress: 1.0,
+      });
+
+      setScanState({
+        status: "processing-date",
+        product,
+        previewUri: result.uri,
+      });
+
+      const date = await detectDateFromPhoto(result.uri);
+
+      if (date) {
+        showToast("Fecha: " + date);
+        setScanState({ status: "found", product, date });
+      } else {
+        const fullDate = await detectDateFromPhoto(filePath);
+        if (fullDate) {
+          showToast("Fecha: " + fullDate);
+          setScanState({ status: "found", product, date: fullDate });
+        } else {
+          showToast("No se detecto fecha");
+          setScanState({ status: "found", product });
+        }
+      }
+    } catch (e) {
+      console.warn("[handleTakePhoto] Error:", e);
+      goToIdle();
+    }
+  }, [photoOutput, goToIdle]);
+
+  const handleDateConfirm = useCallback(() => {
+    goToIdle();
+  }, [goToIdle]);
+
+  const handleDateCancel = useCallback(() => {
+    goToIdle();
+  }, [goToIdle]);
+
+  const handleDateEdit = useCallback(() => {
+    const s = scanStateRef.current;
+    if (s.status === "found" && s.date) {
+      const parts = s.date.split("/");
+      setPendingDate(new Date(+parts[2], +parts[1] - 1, +parts[0]));
+    } else {
+      setPendingDate(new Date());
+    }
+    setShowDatePicker(true);
+  }, []);
+
+  const handleDatePickerConfirm = useCallback(() => {
+    const formatted = formatDateString(pendingDate);
+    const s = scanStateRef.current;
+    if (s.status === "found") {
+      setScanState({ ...s, date: formatted });
+    }
+    setShowDatePicker(false);
+  }, [pendingDate]);
+
+  const handleDatePickerCancel = useCallback(() => {
+    setShowDatePicker(false);
+  }, []);
+
+  /* ---- Permission denied ---- */
 
   if (hasPermission === false) {
     return (
@@ -175,7 +422,7 @@ export default function BarcodeScannerScreen() {
     );
   }
 
-  // ─── No camera ─────────────────────────────────────────
+  /* ---- No camera ---- */
 
   if (!device) {
     return (
@@ -188,30 +435,153 @@ export default function BarcodeScannerScreen() {
     );
   }
 
-  // ─── Scanner ────────────────────────────────────────────
+  /* ---- Render ---- */
 
   return (
-    <CameraSection
-      device={device}
-      scannerOutput={scannerOutput}
-      cameraRef={cameraRef}
-      torch={torch}
-      zoomLabel={zoomLabel}
-      onToggleTorch={toggleTorch}
-      onToggleCamera={toggleCamera}
-      onZoomIn={handleZoomIn}
-      onZoomOut={handleZoomOut}
-      onBack={() => {
-        isScanningRef.current = true;
-        router.back();
-      }}
-      insets={insets}
-      hasTorch={device.hasTorch ?? false}
-    />
+    <View style={StyleSheet.absoluteFill}>
+      <CameraSection
+        device={device}
+        outputs={outputs}
+        cameraRef={cameraRef}
+        torch={torch}
+        zoomLabel={zoomLabel}
+        onToggleTorch={toggleTorch}
+        onToggleCamera={toggleCamera}
+        onZoomIn={handleZoomIn}
+        onZoomOut={handleZoomOut}
+        onBack={() => {
+          isScanningRef.current = true;
+          router.back();
+        }}
+        insets={insets}
+        hasTorch={device.hasTorch ?? false}
+        onCameraLayout={handleCameraLayout}
+      />
+
+      {scanState.status === "loading" && (
+        <View style={[StyleSheet.absoluteFill, styles.loadingOverlay]}>
+          <View style={styles.spinnerWrap}>
+            <View style={styles.spinnerBox}>
+              <ActivityIndicator size="large" color={Colors.primary} />
+              <Text style={styles.spinnerText}>Buscando producto...</Text>
+            </View>
+            <Pressable style={styles.cancelBtn} onPress={goToIdle}>
+              <Text style={styles.cancelBtnText}>Cancelar</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
+
+      {scanState.status === "not-found" && (
+        <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+          <Animated.View
+            entering={FadeIn.duration(200)}
+            style={styles.spinnerWrap}
+          >
+            <View style={styles.spinnerBox}>
+              <SymbolView
+                name={{ ios: "exclamationmark.triangle", android: "warning" }}
+                size={44}
+                tintColor={Colors.warning}
+              />
+              <Text style={styles.spinnerText}>Producto no encontrado</Text>
+            </View>
+            <Pressable style={styles.cancelBtn} onPress={goToIdle}>
+              <Text style={styles.cancelBtnText}>Cancelar</Text>
+            </Pressable>
+          </Animated.View>
+        </View>
+      )}
+
+      {scanState.status === "found" && (
+        <ProductSheet
+          product={scanState.product}
+          date={scanState.date}
+          onDismiss={goToIdle}
+          onScanDate={handleScanDate}
+          onDateConfirm={handleDateConfirm}
+          onDateCancel={handleDateCancel}
+          onEditDate={handleDateEdit}
+        />
+      )}
+
+      {scanState.status === "scanning-date" && (
+        <DateScannerOverlay
+          onTakePhoto={handleTakePhoto}
+          onCancel={goToIdle}
+          onLayoutGuide={handleGuideLayout}
+        />
+      )}
+
+      {scanState.status === "processing-date" && (
+        <View style={[StyleSheet.absoluteFill, styles.processingOverlay]}>
+          <View style={styles.processingWrap}>
+            {scanState.previewUri && (
+              <ExpoImage
+                source={{ uri: scanState.previewUri }}
+                style={styles.previewImage}
+                contentFit="contain"
+              />
+            )}
+            <View style={styles.spinnerBox}>
+              <ActivityIndicator size="large" color={Colors.primary} />
+              <Text style={styles.spinnerText}>Procesando fecha...</Text>
+            </View>
+          </View>
+        </View>
+      )}
+
+      {showDatePicker && Platform.OS === "android" && (
+        <DateTimePicker
+          value={pendingDate}
+          mode="date"
+          display="default"
+          onChange={(event, selectedDate) => {
+            if (event.type === "set" && selectedDate) {
+              const formatted = formatDateString(selectedDate);
+              const s = scanStateRef.current;
+              if (s.status === "found") {
+                setScanState({ ...s, date: formatted });
+              }
+            }
+            setShowDatePicker(false);
+          }}
+        />
+      )}
+
+      {showDatePicker && Platform.OS === "ios" && (
+        <View style={[StyleSheet.absoluteFill, styles.datePickerBackdrop]}>
+          <Host style={styles.datePickerHost}>
+            <View style={styles.datePickerContent}>
+              <DateTimePicker
+                value={pendingDate}
+                mode="date"
+                display="spinner"
+                onChange={(event, date) => {
+                  if (date) setPendingDate(date);
+                }}
+              />
+            </View>
+            <View style={styles.datePickerActions}>
+              <Pressable
+                style={styles.datePickerBtn}
+                onPress={handleDatePickerCancel}
+              >
+                <Text style={styles.datePickerBtnTextCancel}>Cancelar</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.datePickerBtn, styles.datePickerBtnPrimary]}
+                onPress={handleDatePickerConfirm}
+              >
+                <Text style={styles.datePickerBtnTextPrimary}>Confirmar</Text>
+              </Pressable>
+            </View>
+          </Host>
+        </View>
+      )}
+    </View>
   );
 }
-
-// ─── Styles ──────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   center: {
@@ -226,8 +596,113 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 10,
-    marginTop: 8,
     borderCurve: "continuous",
+    marginTop: 8,
   },
   btnText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+
+  spinnerWrap: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  spinnerBox: {
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.55)",
+    paddingHorizontal: 32,
+    paddingVertical: 28,
+    borderRadius: 20,
+    borderCurve: "continuous",
+  },
+  spinnerText: {
+    fontSize: 15,
+    color: "#fff",
+    marginTop: 14,
+    fontWeight: "500",
+    textAlign: "center",
+  },
+  cancelBtn: {
+    marginTop: 20,
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderCurve: "continuous",
+    backgroundColor: "rgba(255,255,255,0.15)",
+  },
+  cancelBtnText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+
+  loadingOverlay: {
+    backgroundColor: "rgba(0,0,0,0.7)",
+    zIndex: 100,
+    elevation: 10,
+  },
+  processingOverlay: {
+    backgroundColor: "rgba(0,0,0,0.7)",
+    zIndex: 100,
+    elevation: 10,
+  },
+
+  datePickerBackdrop: {
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 200,
+    elevation: 20,
+  },
+  datePickerHost: {
+    borderRadius: 16,
+    overflow: "hidden",
+    marginHorizontal: 32,
+    width: "85%",
+    maxWidth: 360,
+  },
+  datePickerContent: {
+    backgroundColor: Colors.surface,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  datePickerActions: {
+    flexDirection: "row",
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+  },
+  datePickerBtn: {
+    flex: 1,
+    alignItems: "center",
+    paddingVertical: 14,
+  },
+  datePickerBtnPrimary: {
+    backgroundColor: Colors.primary,
+  },
+  datePickerBtnTextCancel: {
+    color: Colors.text,
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  datePickerBtnTextPrimary: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  processingWrap: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  previewImage: {
+    width: 220,
+    height: 140,
+    borderRadius: 12,
+    borderCurve: "continuous",
+    marginBottom: 16,
+    borderWidth: 2,
+    borderColor: Colors.primary,
+    backgroundColor: "#000",
+  },
 });

@@ -1,13 +1,20 @@
-import { memo, useMemo } from "react";
+import { memo, useEffect, useRef } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { SymbolView } from "expo-symbols";
 import { Camera, type CameraRef } from "react-native-vision-camera";
-import type { useBarcodeScannerOutput } from "react-native-vision-camera-barcode-scanner";
-import type { useCameraDevice } from "react-native-vision-camera";
+
+export type CameraLayout = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
 
 export type CameraSectionProps = {
-  device: NonNullable<ReturnType<typeof useCameraDevice>>;
-  scannerOutput: ReturnType<typeof useBarcodeScannerOutput>;
+  device: NonNullable<
+    ReturnType<typeof import("react-native-vision-camera").useCameraDevice>
+  >;
+  outputs?: any[];
   cameraRef: React.RefObject<CameraRef | null>;
   torch: "off" | "on";
   zoomLabel: string;
@@ -18,11 +25,17 @@ export type CameraSectionProps = {
   onBack: () => void;
   insets: { top: number; bottom: number };
   hasTorch: boolean;
+  onCameraLayout?: (layout: CameraLayout) => void;
 };
 
+/**
+ * Full-screen camera view with overlay controls: back button, torch toggle,
+ * camera flip, and zoom buttons.  Reports its measured layout back to the
+ * parent so date-detection cropping can align with the visible viewport.
+ */
 const CameraSection = memo(function CameraSection({
   device,
-  scannerOutput,
+  outputs,
   cameraRef,
   torch,
   zoomLabel,
@@ -33,11 +46,26 @@ const CameraSection = memo(function CameraSection({
   onBack,
   insets,
   hasTorch,
+  onCameraLayout,
 }: CameraSectionProps) {
-  const outputs = useMemo(() => [scannerOutput], [scannerOutput]);
+  const rootRef = useRef<View>(null);
+  const hasReported = useRef(false);
+
+  useEffect(() => {
+    if (!onCameraLayout || hasReported.current) return;
+    const id = requestAnimationFrame(() => {
+      rootRef.current?.measureInWindow((left, top, width, height) => {
+        if (!hasReported.current && width > 0 && height > 0) {
+          hasReported.current = true;
+          onCameraLayout({ left, top, width, height });
+        }
+      });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [onCameraLayout]);
 
   return (
-    <View style={StyleSheet.absoluteFill}>
+    <View style={StyleSheet.absoluteFill} ref={rootRef}>
       <Camera
         style={StyleSheet.absoluteFill}
         ref={cameraRef}
@@ -52,7 +80,6 @@ const CameraSection = memo(function CameraSection({
         style={[StyleSheet.absoluteFill, { zIndex: 10 }]}
         pointerEvents="box-none"
       >
-        {/* Back button */}
         <Pressable
           style={[styles.backBtn, { top: insets.top + 8 }]}
           onPress={onBack}
@@ -64,7 +91,6 @@ const CameraSection = memo(function CameraSection({
           />
         </Pressable>
 
-        {/* Flash + flip */}
         <View style={[styles.controls, { top: insets.top + 8 }]}>
           {hasTorch ? (
             <Pressable
@@ -93,7 +119,6 @@ const CameraSection = memo(function CameraSection({
           </Pressable>
         </View>
 
-        {/* Zoom */}
         <View style={styles.zoom}>
           <Pressable style={styles.zoomBtn} onPress={onZoomIn}>
             <Text style={styles.zoomBtnText}>+</Text>

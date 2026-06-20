@@ -10,6 +10,11 @@ type Props = {
   rightSlot?: React.ReactNode;
 };
 
+/**
+ * Top navigation bar with an optional back button, centered title, and an
+ * optional right slot (e.g. a settings icon).  Handles safe-area inset
+ * automatically.
+ */
 export default function TopBar({
   title = "Expirat",
   showBack,

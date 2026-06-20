@@ -8,6 +8,10 @@ type Props = {
   limit?: number;
 };
 
+/**
+ * Renders a short preview of `text` with a "Ver más" / "Ver menos" toggle.
+ * Useful for long fields such as ingredients or categories.
+ */
 export default function ExpandableText({ label, text, limit = 120 }: Props) {
   const [expanded, setExpanded] = useState(false);
 

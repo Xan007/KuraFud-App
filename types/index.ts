@@ -1,13 +1,16 @@
+/** Available screen identifiers for manual navigation. */
 export enum Screen {
   Home = "Home",
   BarcodeScanner = "BarcodeScanner",
 }
 
+/** Serializable navigation state used by the navigation store. */
 export type NavigationState = {
   screen: Screen;
   params?: Record<string, unknown>;
 };
 
+/** Nutritional values per 100 g of product.  `null` means the data is unavailable. */
 export type Nutriments = {
   energyKcal100g: number | null;
   energyKj100g: number | null;
@@ -23,6 +26,7 @@ export type Nutriments = {
   sodium100g: number | null;
 };
 
+/** Product data returned by the Open Food Facts API. */
 export type ProductInfo = {
   barcode: string;
   name: string;
@@ -37,14 +41,15 @@ export type ProductInfo = {
   categories: string;
   nutriscore: string;
   nutriments: Nutriments;
-  /** Tamaño de la porción p.ej. "100g" o "1 galleta (30g)" */
+  /** Human-readable serving size, e.g. "100 g" or "1 cookie (30 g)". */
   servingSize: string;
-  /** Cantidad numérica de la porción en gramos */
+  /** Numeric serving quantity in grams. */
   servingQuantity: number | null;
-  /** Numero de porciones por envase */
+  /** Number of servings per container, when available. */
   servingsPerContainer: string | null;
 };
 
+/** Default / empty product used before data is loaded. */
 export const emptyProduct: ProductInfo = {
   barcode: "",
   name: "",

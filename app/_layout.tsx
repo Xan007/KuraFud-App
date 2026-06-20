@@ -8,8 +8,6 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { Colors } from "@/constants/theme";
 
-// ─── Error Boundary ──────────────────────────────────────
-
 type EBProps = { children: ReactNode };
 type EBState = { error: Error | null };
 
@@ -71,8 +69,10 @@ class ErrorBoundary extends Component<EBProps, EBState> {
   }
 }
 
-// ─── Root Layout ─────────────────────────────────────────
-
+/**
+ * Root layout wrapping the entire app with gesture handling, safe-area
+ * support, an error boundary, and the Expo Router stack navigator.
+ */
 export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

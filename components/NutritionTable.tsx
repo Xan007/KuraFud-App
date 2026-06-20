@@ -3,19 +3,14 @@ import type { Nutriments } from "types";
 import { Colors } from "@/constants/theme";
 import { fmt, perServing, hasNutriments } from "@/helpers/format";
 
-// ─── Fila ──────────────────────────────────────────────────
-
-function Row({
-  label,
-  col1,
-  col2,
-  indent = 0,
-}: {
+type RowProps = {
   label: string;
   col1: string | null;
   col2: string | null;
   indent?: 0 | 1 | 2;
-}) {
+};
+
+function Row({ label, col1, col2, indent = 0 }: RowProps) {
   if (col2 == null) return null;
   return (
     <View style={styles.row}>
@@ -30,8 +25,6 @@ function Row({
   );
 }
 
-// ─── Tabla completa ────────────────────────────────────────
-
 type Props = {
   nutriments: Nutriments;
   servingSize: string;
@@ -39,6 +32,7 @@ type Props = {
   servingQuantity: number | null;
 };
 
+/** Renders a full nutrition facts table based on per-100g data. */
 export default function NutritionTable({
   nutriments: n,
   servingSize,

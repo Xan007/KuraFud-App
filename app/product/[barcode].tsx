@@ -21,6 +21,11 @@ import TopBar from "components/TopBar";
 
 type Status = "loading" | "result" | "not-found";
 
+/**
+ * Product detail screen reached via `/product/:barcode`.
+ * Looks up the product from Open Food Facts and displays its images,
+ * ingredients, categories, and nutrition table.
+ */
 export default function ProductScreen() {
   const { barcode } = useLocalSearchParams<{ barcode: string }>();
   const router = useRouter();
@@ -52,8 +57,6 @@ export default function ProductScreen() {
       });
   }, [barcode]);
 
-  // ── Loading ──────────────────────────────────────────────
-
   if (status === "loading") {
     return (
       <View style={styles.loadingContainer}>
@@ -68,8 +71,6 @@ export default function ProductScreen() {
     );
   }
 
-  // ── Not found ────────────────────────────────────────────
-
   if (status === "not-found") {
     return (
       <Animated.View entering={FadeIn} style={styles.center}>
@@ -83,8 +84,6 @@ export default function ProductScreen() {
       </Animated.View>
     );
   }
-
-  // ── Result ───────────────────────────────────────────────
 
   const p = product!;
   const images = [
@@ -127,24 +126,6 @@ export default function ProductScreen() {
           servingQuantity={p.servingQuantity}
         />
       </ScrollView>
-
-      <View style={[styles.bottomArea, { paddingBottom: insets.bottom + 12 }]}>
-        <Pressable
-          onPress={() => router.back()}
-          style={({ pressed }) => [
-            styles.scanBtn,
-            pressed && styles.scanBtnPressed,
-          ]}
-        >
-          <SymbolView
-            name={{ ios: "barcode.viewfinder", android: "barcode_scanner" }}
-            size={22}
-            weight="medium"
-            tintColor="#fff"
-          />
-          <Text style={styles.scanBtnText}>Escanear otro</Text>
-        </Pressable>
-      </View>
     </Animated.View>
   );
 }
@@ -156,37 +137,6 @@ const styles = StyleSheet.create({
   name: { fontSize: 22, fontWeight: "700", marginBottom: 4 },
   brand: { fontSize: 16, color: Colors.textSecondary, marginBottom: 12 },
   detail: { fontSize: 14, marginBottom: 6, lineHeight: 20 },
-
-  bottomArea: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 12,
-    backgroundColor: Colors.background,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Colors.border,
-  },
-  scanBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    alignSelf: "center",
-    gap: 10,
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 48,
-    paddingVertical: 16,
-    borderRadius: 14,
-    borderCurve: "continuous",
-    boxShadow: "0 4px 14px rgba(52, 168, 83, 0.35)",
-  },
-  scanBtnPressed: {
-    opacity: 0.85,
-  },
-  scanBtnText: {
-    color: "#fff",
-    fontSize: 17,
-    fontWeight: "700",
-    letterSpacing: 0.4,
-  },
 
   center: {
     flex: 1,
