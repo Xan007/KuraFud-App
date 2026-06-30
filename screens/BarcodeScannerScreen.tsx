@@ -6,7 +6,6 @@ import Animated, { FadeIn } from "react-native-reanimated";
 import { ActivityIndicator, Pressable, Text } from "react-native";
 import { Image as ExpoImage } from "expo-image";
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
-import { SymbolView } from "expo-symbols";
 import {
   useCameraDevice,
   useCameraPermission,
@@ -17,7 +16,7 @@ import { useBarcodeScannerOutput } from "react-native-vision-camera-barcode-scan
 import { Colors } from "@/constants/theme";
 import { lookupProduct } from "services/productService";
 import { detectDateFromPhoto } from "services/dateDetection";
-import type { ProductInfo } from "types";
+import { emptyProduct, type ProductInfo } from "types";
 import { formatDateString } from "@/helpers/format";
 import { Host } from "@expo/ui";
 import DateTimePicker from "@expo/ui/community/datetime-picker";
@@ -25,10 +24,6 @@ import CameraSection from "@/components/CameraSection";
 import type { CameraLayout } from "@/components/CameraSection";
 import ProductSheet from "@/components/ProductSheet";
 import DateScannerOverlay from "@/components/DateScannerOverlay";
-
-/* -------------------------------------------------------------------------- */
-/*  Types                                                                     */
-/* -------------------------------------------------------------------------- */
 
 type ScanState =
   | { status: "idle" }
@@ -44,10 +39,6 @@ type ScanState =
 
 type GuideRect = { x: number; y: number; width: number; height: number };
 
-/* -------------------------------------------------------------------------- */
-/*  Helpers                                                                   */
-/* -------------------------------------------------------------------------- */
-
 function showToast(msg: string) {
   if (Platform.OS === "android") {
     ToastAndroid.show(msg, ToastAndroid.SHORT);
@@ -56,15 +47,6 @@ function showToast(msg: string) {
   }
 }
 
-/* -------------------------------------------------------------------------- */
-/*  Screen                                                                    */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Full barcode scanner screen.  It manages camera state, barcode detection,
- * product lookup via Open Food Facts, and an optional date-scanning flow
- * where the user takes a picture of the expiration date.
- */
 export default function BarcodeScannerScreen() {
   const router = useRouter();
   const [cameraPosition, setCameraPosition] = useState<"back" | "front">(
@@ -91,8 +73,6 @@ export default function BarcodeScannerScreen() {
     qualityPrioritization: "quality",
   });
 
-  /* ---- Reset scan flag on focus ---- */
-
   useFocusEffect(
     useCallback(() => {
       isScanningRef.current = true;
@@ -101,8 +81,6 @@ export default function BarcodeScannerScreen() {
       };
     }, []),
   );
-
-  /* ---- Barcode handler ---- */
 
   const handleBarcodeScanned = useCallback(
     (barcodes: { rawValue?: string }[]) => {
@@ -119,11 +97,19 @@ export default function BarcodeScannerScreen() {
           if (p) {
             setScanState({ status: "found", product: p });
           } else {
-            setScanState({ status: "not-found" });
+            showToast("Producto no encontrado, ingresa el nombre manualmente");
+            setScanState({
+              status: "found",
+              product: { ...emptyProduct, barcode: code },
+            });
           }
         })
         .catch(() => {
-          setScanState({ status: "not-found" });
+          showToast("Error de conexion, ingresa el nombre manualmente");
+          setScanState({
+            status: "found",
+            product: { ...emptyProduct, barcode: code },
+          });
         });
     },
     [],
@@ -132,8 +118,6 @@ export default function BarcodeScannerScreen() {
   const handleError = useCallback((error: Error) => {
     console.warn("Scanner error:", error);
   }, []);
-
-  /* ---- Scanner setup ---- */
 
   const barcodeOptions = useMemo(
     () => ({
@@ -153,8 +137,6 @@ export default function BarcodeScannerScreen() {
 
   const insets = useSafeAreaInsets();
 
-  /* ---- Camera controls ---- */
-
   const toggleTorch = useCallback(() => {
     setTorch((prev) => (prev === "off" ? "on" : "off"));
   }, []);
@@ -165,8 +147,6 @@ export default function BarcodeScannerScreen() {
     setZoomLabel("1.0x");
     lastZoomRef.current = "1.0x";
   }, []);
-
-  /* ---- Torch sync ---- */
 
   useEffect(() => {
     let cancelled = false;
@@ -187,8 +167,6 @@ export default function BarcodeScannerScreen() {
       clearInterval(id);
     };
   }, [torch, cameraPosition]);
-
-  /* ---- Zoom ---- */
 
   const getZoom = useCallback(() => {
     try {
@@ -233,8 +211,6 @@ export default function BarcodeScannerScreen() {
     return () => clearInterval(interval);
   }, []);
 
-  /* ---- Layout callbacks ---- */
-
   const handleCameraLayout = useCallback((layout: CameraLayout) => {
     cameraLayoutRef.current = layout;
   }, []);
@@ -243,11 +219,25 @@ export default function BarcodeScannerScreen() {
     guideRectRef.current = rect;
   }, []);
 
-  /* ---- Date scanning handlers ---- */
-
   const goToIdle = useCallback(() => {
     isScanningRef.current = true;
     setScanState({ status: "idle" });
+  }, []);
+
+  const handleChangeName = useCallback((name: string) => {
+    setScanState((prev) => {
+      if (prev.status === "found") {
+        return { ...prev, product: { ...prev.product, name } };
+      }
+      return prev;
+    });
+  }, []);
+
+  const handleCancelDateScan = useCallback(() => {
+    const s = scanStateRef.current;
+    if (s.status === "scanning-date") {
+      setScanState({ status: "found", product: s.product });
+    }
   }, []);
 
   const handleScanDate = useCallback(() => {
@@ -257,6 +247,14 @@ export default function BarcodeScannerScreen() {
       setScanState({ status: "scanning-date", product: s.product });
     }
   }, []);
+
+  const resolveDateResult = useCallback(
+    async (photoPath: string, product: ProductInfo) => {
+      const date = await detectDateFromPhoto(photoPath);
+      setScanState({ status: "found", product, ...(date ? { date } : {}) });
+    },
+    [],
+  );
 
   const handleTakePhoto = useCallback(async () => {
     const s = scanStateRef.current;
@@ -282,14 +280,7 @@ export default function BarcodeScannerScreen() {
 
       const camLayout = cameraLayoutRef.current;
       if (!camLayout || camLayout.width <= 0 || camLayout.height <= 0) {
-        const date = await detectDateFromPhoto(filePath);
-        if (date) {
-          showToast("Fecha: " + date);
-          setScanState({ status: "found", product, date });
-        } else {
-          showToast("No se detecto fecha");
-          setScanState({ status: "found", product });
-        }
+        await resolveDateResult(filePath, product);
         return;
       }
 
@@ -302,14 +293,7 @@ export default function BarcodeScannerScreen() {
 
       const guide = guideRectRef.current;
       if (!guide || guide.width <= 0 || guide.height <= 0) {
-        const date = await detectDateFromPhoto(filePath);
-        if (date) {
-          showToast("Fecha: " + date);
-          setScanState({ status: "found", product, date });
-        } else {
-          showToast("No se detecto fecha");
-          setScanState({ status: "found", product });
-        }
+        await resolveDateResult(filePath, product);
         return;
       }
 
@@ -356,23 +340,15 @@ export default function BarcodeScannerScreen() {
       const date = await detectDateFromPhoto(result.uri);
 
       if (date) {
-        showToast("Fecha: " + date);
         setScanState({ status: "found", product, date });
       } else {
-        const fullDate = await detectDateFromPhoto(filePath);
-        if (fullDate) {
-          showToast("Fecha: " + fullDate);
-          setScanState({ status: "found", product, date: fullDate });
-        } else {
-          showToast("No se detecto fecha");
-          setScanState({ status: "found", product });
-        }
+        await resolveDateResult(filePath, product);
       }
     } catch (e) {
-      console.warn("[handleTakePhoto] Error:", e);
+      console.warn("Take photo error:", e);
       goToIdle();
     }
-  }, [photoOutput, goToIdle]);
+  }, [photoOutput, goToIdle, resolveDateResult]);
 
   const handleDateConfirm = useCallback(() => {
     goToIdle();
@@ -406,8 +382,6 @@ export default function BarcodeScannerScreen() {
     setShowDatePicker(false);
   }, []);
 
-  /* ---- Permission denied ---- */
-
   if (hasPermission === false) {
     return (
       <Animated.View entering={FadeIn} style={styles.center}>
@@ -422,8 +396,6 @@ export default function BarcodeScannerScreen() {
     );
   }
 
-  /* ---- No camera ---- */
-
   if (!device) {
     return (
       <Animated.View entering={FadeIn} style={styles.center}>
@@ -434,8 +406,6 @@ export default function BarcodeScannerScreen() {
       </Animated.View>
     );
   }
-
-  /* ---- Render ---- */
 
   return (
     <View style={StyleSheet.absoluteFill}>
@@ -472,27 +442,6 @@ export default function BarcodeScannerScreen() {
         </View>
       )}
 
-      {scanState.status === "not-found" && (
-        <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-          <Animated.View
-            entering={FadeIn.duration(200)}
-            style={styles.spinnerWrap}
-          >
-            <View style={styles.spinnerBox}>
-              <SymbolView
-                name={{ ios: "exclamationmark.triangle", android: "warning" }}
-                size={44}
-                tintColor={Colors.warning}
-              />
-              <Text style={styles.spinnerText}>Producto no encontrado</Text>
-            </View>
-            <Pressable style={styles.cancelBtn} onPress={goToIdle}>
-              <Text style={styles.cancelBtnText}>Cancelar</Text>
-            </Pressable>
-          </Animated.View>
-        </View>
-      )}
-
       {scanState.status === "found" && (
         <ProductSheet
           product={scanState.product}
@@ -502,13 +451,14 @@ export default function BarcodeScannerScreen() {
           onDateConfirm={handleDateConfirm}
           onDateCancel={handleDateCancel}
           onEditDate={handleDateEdit}
+          onChangeName={handleChangeName}
         />
       )}
 
       {scanState.status === "scanning-date" && (
         <DateScannerOverlay
           onTakePhoto={handleTakePhoto}
-          onCancel={goToIdle}
+          onCancel={handleCancelDateScan}
           onLayoutGuide={handleGuideLayout}
         />
       )}

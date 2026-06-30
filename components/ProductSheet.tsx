@@ -1,6 +1,5 @@
-import { memo, useCallback } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { memo } from "react";
+import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { SymbolView } from "expo-symbols";
 import { Colors } from "@/constants/theme";
 import type { ProductInfo } from "types";
@@ -14,13 +13,9 @@ type Props = {
   onDateConfirm: () => void;
   onDateCancel: () => void;
   onEditDate: () => void;
+  onChangeName?: (name: string) => void;
 };
 
-/**
- * Bottom sheet displayed when a barcode is found, showing the product name,
- * brand, expiration date (with edit / scan actions), and confirm / cancel
- * buttons.
- */
 const ProductSheet = memo(function ProductSheet({
   product,
   date,
@@ -29,14 +24,25 @@ const ProductSheet = memo(function ProductSheet({
   onDateConfirm,
   onDateCancel,
   onEditDate,
+  onChangeName,
 }: Props) {
-  const insets = useSafeAreaInsets();
-
   return (
     <SheetWrapper onDismiss={onDismiss}>
-      <Text style={styles.name} numberOfLines={2}>
-        {product.name}
-      </Text>
+      {onChangeName ? (
+        <TextInput
+          style={styles.nameInput}
+          value={product.name}
+          onChangeText={onChangeName}
+          placeholder="Nombre del producto"
+          placeholderTextColor={Colors.textSecondary}
+          autoFocus={product.name === ""}
+          selectTextOnFocus
+        />
+      ) : (
+        <Text style={styles.name} numberOfLines={2}>
+          {product.name}
+        </Text>
+      )}
       {product.brand ? (
         <Text style={styles.brand}>{product.brand}</Text>
       ) : (
@@ -168,6 +174,15 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 16,
     fontWeight: "600",
+  },
+  nameInput: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: Colors.text,
+    marginBottom: 2,
+    borderBottomWidth: 2,
+    borderBottomColor: Colors.primary,
+    paddingVertical: 2,
   },
   cancelBtn: {
     alignItems: "center",

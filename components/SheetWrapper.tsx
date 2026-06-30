@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, type ReactNode } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Keyboard, Pressable, StyleSheet, View } from "react-native";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -10,30 +10,40 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Colors } from "@/constants/theme";
 
 type SheetWrapperProps = {
-  /** Called when the sheet should be dismissed (backdrop press or programmatic). */
   onDismiss: () => void;
-  /** Content rendered inside the sheet, below the drag handle. */
   children: ReactNode;
 };
 
-/**
- * Reusable bottom-sheet wrapper with a backdrop, drag handle, and animated
- * entrance / dismissal.  Both `DatePreviewSheet` and `ProductSheet` use this
- * internally to avoid duplicating the animation logic.
- */
+const SHEET_ANIM_DURATION = 300;
+const DISMISS_ANIM_DURATION = 200;
+
 const SheetWrapper = memo(function SheetWrapper({
   onDismiss,
   children,
 }: SheetWrapperProps) {
   const insets = useSafeAreaInsets();
   const progress = useSharedValue(0);
+  const keyboardOffset = useSharedValue(0);
 
   useEffect(() => {
-    progress.value = withTiming(1, { duration: 300 });
+    progress.value = withTiming(1, { duration: SHEET_ANIM_DURATION });
   }, [progress]);
 
+  useEffect(() => {
+    const onShow = Keyboard.addListener("keyboardDidShow", (e) => {
+      keyboardOffset.value = e.endCoordinates.height;
+    });
+    const onHide = Keyboard.addListener("keyboardDidHide", () => {
+      keyboardOffset.value = 0;
+    });
+    return () => {
+      onShow.remove();
+      onHide.remove();
+    };
+  }, []);
+
   const dismiss = useCallback(() => {
-    progress.value = withTiming(0, { duration: 200 }, () => {
+    progress.value = withTiming(0, { duration: DISMISS_ANIM_DURATION }, () => {
       runOnJS(onDismiss)();
     });
   }, [onDismiss, progress]);
@@ -43,11 +53,16 @@ const SheetWrapper = memo(function SheetWrapper({
   }));
 
   const rSheet = useAnimatedStyle(() => ({
-    transform: [{ translateY: (1 - progress.value) * 300 }],
+    transform: [
+      {
+        translateY: (1 - progress.value) * 300 - keyboardOffset.value,
+      },
+    ],
+    paddingBottom: insets.bottom + 16,
   }));
 
   return (
-    <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+    <View style={styles.container} pointerEvents="box-none">
       <Animated.View style={[styles.backdrop, rBackdrop]}>
         <Pressable style={StyleSheet.absoluteFill} onPress={dismiss} />
       </Animated.View>
@@ -68,6 +83,11 @@ const styles = StyleSheet.create({
   backdrop: {
     ...StyleSheet.absoluteFill,
     backgroundColor: "#000",
+  },
+  container: {
+    ...StyleSheet.absoluteFill,
+    zIndex: 100,
+    elevation: 100,
   },
   sheet: {
     position: "absolute",
