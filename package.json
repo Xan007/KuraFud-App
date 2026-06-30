@@ -5,11 +5,13 @@
   "dependencies": {
     "@expo/ui": "~56.0.18",
     "@react-native-ml-kit/text-recognition": "^2.0.0",
+    "drizzle-orm": "^0.45.2",
     "expo": "~56.0.12",
     "expo-image": "~56.0.11",
     "expo-image-manipulator": "~56.0.19",
     "expo-linking": "~56.0.14",
     "expo-router": "~56.2.11",
+    "expo-sqlite": "~56.0.5",
     "expo-status-bar": "~56.0.4",
     "expo-symbols": "^56.0.6",
     "react": "19.2.3",
@@ -27,12 +29,14 @@
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
+    "drizzle-kit": "^0.31.10",
     "typescript": "~6.0.3"
   },
   "scripts": {
     "start": "expo start",
     "android": "expo run:android",
-    "ios": "expo run:ios"
+    "ios": "expo run:ios",
+    "db:generate": "drizzle-kit generate"
   },
   "private": true
 }
