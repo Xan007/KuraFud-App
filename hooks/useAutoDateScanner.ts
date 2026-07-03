@@ -126,8 +126,11 @@ export function useAutoDateScanner({
     setProgress(null);
     scanner.start();
     // Start the CPU fallback if GPU is unavailable or not yet ready.
-    if ((!gpuAvailable || resizerState !== "ready") && fallbackTimer.current == null) {
-      fallbackTimer.current = setInterval(() => scanner.submit(0.7), 350);
+    if (
+      (!gpuAvailable || resizerState !== "ready") &&
+      fallbackTimer.current == null
+    ) {
+      fallbackTimer.current = setInterval(() => scanner.submit(0.7), 150);
     }
   }, [scanner, gpuAvailable, resizerState]);
 

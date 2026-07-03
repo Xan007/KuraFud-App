@@ -58,10 +58,10 @@ export function createAutoScanner(config: AutoScannerConfig): AutoScanner {
     onExhausted,
     onProgress,
     onError,
-    minCaptureIntervalMs = 400,
-    maxAttempts = 24,
-    timeoutMs = 20000,
-    voting = DEFAULT_VOTING,
+    minCaptureIntervalMs = 150,
+    maxAttempts = 8,
+    timeoutMs = 10000,
+    voting = { requiredVotes: 2.5, leadMargin: 1.0 },
   } = config;
 
   const votes = createVoteBox(voting);
@@ -123,7 +123,12 @@ export function createAutoScanner(config: AutoScannerConfig): AutoScanner {
 
       const date = detectDate(text);
       const state = votes.add(date, qualityScore);
-      report(date ? "voted" : "no-date", state.leader, state.leaderVotes, state.reads);
+      report(
+        date ? "voted" : "no-date",
+        state.leader,
+        state.leaderVotes,
+        state.reads,
+      );
 
       if (state.accepted) {
         stop();

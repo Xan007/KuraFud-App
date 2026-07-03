@@ -14,8 +14,6 @@ import { useBarcodeScannerOutput } from "react-native-vision-camera-barcode-scan
 import { Colors } from "@/constants/theme";
 import { lookupProduct } from "services/productService";
 import { useAutoDateScanner } from "@/hooks/useAutoDateScanner";
-import { enhanceForOcr } from "@/services/ocr/imageEnhance";
-import { computeRoiRect } from "@/services/ocr/roi";
 import type { Candidate } from "@/services/ocr/autoScanner";
 import { emptyProduct, type ProductInfo } from "types";
 import { formatDateString } from "@/helpers/format";
@@ -70,8 +68,8 @@ export default function BarcodeScannerScreen() {
   const device = useCameraDevice(cameraPosition);
   const { hasPermission, requestPermission } = useCameraPermission();
   const photoOutput = usePhotoOutput({
-    quality: 0.9,
-    qualityPrioritization: "quality",
+    quality: 0.8,
+    qualityPrioritization: "speed",
   });
 
   useFocusEffect(
@@ -245,33 +243,22 @@ export default function BarcodeScannerScreen() {
   }, []);
 
   /**
-   * Captures a full-resolution photo, crops it to the on-screen date guide and
-   * enhances it for OCR.  Runs only when the worklet gate reports a good frame.
+   * Takes an instant snapshot from the camera preview buffer and feeds it
+   * directly to ML Kit — no pixel-level enhancement needed because the
+   * quality gate already ensures good lighting and focus.
    */
   const captureCandidate = useCallback(async (): Promise<Candidate | null> => {
     try {
-      const { filePath } = await photoOutput.capturePhotoToFile(
-        { enableShutterSound: false },
-        {},
-      );
-      const fileUri = filePath.startsWith("file://")
-        ? filePath
-        : "file://" + filePath;
-
-      const camLayout = cameraLayoutRef.current;
-      const guide = guideRectRef.current;
-      const roiFor = (w: number, h: number) =>
-        camLayout && guide
-          ? computeRoiRect({ photoW: w, photoH: h, camLayout, guide })
-          : undefined;
-
-      const ocrPath = await enhanceForOcr(fileUri, { roi: roiFor });
-      return { ocrPath, photoPath: fileUri };
+      const camera = cameraRef.current;
+      if (!camera) return null;
+      const snapshot = await camera.takeSnapshot();
+      const fileUri = await snapshot.saveToTemporaryFileAsync("jpg", 80);
+      return { ocrPath: fileUri, photoPath: fileUri };
     } catch (e) {
       console.warn("captureCandidate error:", e);
       return null;
     }
-  }, [photoOutput]);
+  }, []);
 
   const handleDateAccepted = useCallback((date: string, photoUri: string) => {
     const s = scanStateRef.current;
