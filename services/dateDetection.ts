@@ -1,12 +1,7 @@
 import TextRecognition from "@react-native-ml-kit/text-recognition";
-import { File } from "expo-file-system";
-import { GROQ_API_KEY } from "@/constants/config";
-
-const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
-const VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
 
 /* -------------------------------------------------------------------------- */
-/*  Helpers                                                                   */
+/*  Helpers                                                                    */
 /* -------------------------------------------------------------------------- */
 
 function normalize(value: string, length: 2 | 4): string {
@@ -22,11 +17,11 @@ function formatDate(day: string, month: string, year: string): string {
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Regex-based date extraction                                               */
+/*  Regex-based date extraction                                                */
 /* -------------------------------------------------------------------------- */
 
 /** Attempts to find a date in numeric formats inside `text`. */
-function tryRegex(text: string): string | null {
+export function tryRegex(text: string): string | null {
   const withSep = /\b(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})\b/;
   let m = text.match(withSep);
   if (m) {
@@ -55,7 +50,7 @@ function tryRegex(text: string): string | null {
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Spanish month names                                                       */
+/*  Spanish month names                                                        */
 /* -------------------------------------------------------------------------- */
 
 const SPANISH_MONTHS: Record<string, number> = {
@@ -90,7 +85,7 @@ function getLastDayOfMonth(month: number, year: number): number {
 }
 
 /** Looks for dates written in Spanish (e.g. "27 DIC 2026", "DICIEMBRE 2026"). */
-function trySpanishDate(text: string): string | null {
+export function trySpanishDate(text: string): string | null {
   const sorted = Object.keys(SPANISH_MONTHS).sort(
     (a, b) => b.length - a.length,
   );
@@ -122,166 +117,25 @@ function trySpanishDate(text: string): string | null {
   return formatDate(String(lastDay), String(month), year);
 }
 
-/* -------------------------------------------------------------------------- */
-/*  Groq Vision fallback                                                      */
-/* -------------------------------------------------------------------------- */
-
-function buildVisionPrompt(): string {
-  return `Eres un experto en leer fechas de vencimiento de empaques de alimentos colombianos.
-
-Mira la imagen del empaque y extrae SOLO la fecha de vencimiento del producto.
-
-Busca palabras clave como: Vence, Vencimiento, FV, Expiry, Best before, Consumir antes de, Valido hasta, VT, VTO, Fecha de caducidad, Caduca.
-
-La fecha puede estar en varios formatos:
-- Numerico: 15/08/2026, 15-08-26, 15082026
-- Mes abreviado: DIC 2026, 15 DIC 2026
-- Mes completo: diciembre 2026, 15 de diciembre de 2026
-
-Reglas:
-- Convierte meses abreviados (ENE, FEB, MAR, ABR, MAY, JUN, JUL, AGO, SEP, OCT, NOV, DIC) a numero.
-- Si solo viene mes y ano, usa el ULTIMO DIA del mes (ej: DIC 2026 -> 31/12/2026).
-- Si hay varias fechas, prioriza la que tenga palabras clave de vencimiento.
-- IGNORA: fecha de fabricacion, numero de lote, RUC, NIT, codigo de barras, pesos, precios.
-- Si no hay una fecha de vencimiento clara, responde null.
-
-Responde UNICAMENTE con un objeto JSON en una sola linea, sin explicacion:
-{"date": "DD/MM/YYYY"} o {"date": null}`;
-}
-
-async function tryGroqVision(dataUrl: string): Promise<string | null> {
-  if (!GROQ_API_KEY) return null;
-
-  try {
-    const res = await fetch(GROQ_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${GROQ_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: VISION_MODEL,
-        messages: [
-          {
-            role: "user",
-            content: [
-              { type: "text", text: buildVisionPrompt() },
-              { type: "image_url", image_url: { url: dataUrl } },
-            ],
-          },
-        ],
-        temperature: 0.1,
-        max_tokens: 200,
-      }),
-    });
-
-    if (!res.ok) {
-      const text = await res.text();
-      console.warn("[GroqVision] HTTP", res.status, text.slice(0, 500));
-      return null;
-    }
-
-    const data = await res.json();
-    const content: string = data.choices?.[0]?.message?.content ?? "";
-
-    try {
-      const parsed = JSON.parse(content);
-      return parsed?.date ?? null;
-    } catch {
-      const extracted = tryRegex(content) || trySpanishDate(content);
-      return extracted;
-    }
-  } catch (e) {
-    console.warn("[GroqVision] fallo:", e);
-    return null;
-  }
+/**
+ * Runs both detectors over a block of recognized text and returns the first
+ * date found in `DD/MM/YYYY` format, or `null`.
+ *
+ * This is the single entry-point the OCR pipeline uses on ML Kit output.
+ */
+export function detectDate(text: string): string | null {
+  return tryRegex(text) || trySpanishDate(text);
 }
 
 /* -------------------------------------------------------------------------- */
-/*  MLKit + Regex pipeline                                                    */
-/* -------------------------------------------------------------------------- */
-
-type MlKitOutcome =
-  | { date: string; textRead: true }
-  | { date: null; textRead: true }
-  | { date: null; textRead: false };
-
-async function tryMlKit(photoPath: string): Promise<MlKitOutcome> {
-  const uris: string[] = [];
-  if (photoPath.startsWith("file://")) {
-    uris.push(photoPath);
-    uris.push(photoPath.replace(/^file:\/\//, ""));
-  } else {
-    uris.push("file://" + photoPath);
-    uris.push(photoPath);
-  }
-
-  for (const imageUri of uris) {
-    try {
-      const result = await TextRecognition.recognize(imageUri);
-      const text = result.text.trim();
-
-      if (text) {
-        const found = tryRegex(text) || trySpanishDate(text);
-        if (found) {
-          return { date: found, textRead: true };
-        }
-        return { date: null, textRead: true };
-      } else {
-        return { date: null, textRead: false };
-      }
-    } catch {
-      continue;
-    }
-  }
-
-  return { date: null, textRead: false };
-}
-
-/* -------------------------------------------------------------------------- */
-/*  Groq Vision fallback                                                      */
-/* -------------------------------------------------------------------------- */
-
-function arrayBufferToDataUrl(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  let binary = "";
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return `data:image/jpeg;base64,${btoa(binary)}`;
-}
-
-async function tryGroqFallback(photoPath: string): Promise<string | null> {
-  try {
-    const fullUri = photoPath.startsWith("file://")
-      ? photoPath
-      : "file://" + photoPath;
-
-    const file = new File(fullUri);
-    const arrayBuffer = await file.arrayBuffer();
-    const dataUrl = arrayBufferToDataUrl(arrayBuffer);
-
-    if (dataUrl.length > 3.8 * 1024 * 1024) {
-      return null;
-    }
-
-    return tryGroqVision(dataUrl);
-  } catch (e) {
-    console.warn("[detectDate] Error leyendo archivo para Groq:", e);
-    return null;
-  }
-}
-
-/* -------------------------------------------------------------------------- */
-/*  Public API                                                                */
+/*  MLKit + Regex pipeline (100% offline)                                      */
 /* -------------------------------------------------------------------------- */
 
 /**
- * Detects an expiration date from a photo file.
+ * Detects an expiration date from a photo file, fully offline.
  *
- * Pipeline:
- * 1. **MLKit** extracts text → **regex** searches for numeric / Spanish dates.
- * 2. If MLKit found no date, **Groq Vision** analyses the image as a fallback.
+ * Pipeline: **MLKit** extracts text → **regex** searches for numeric / Spanish
+ * dates.  No network, no cloud fallback.
  *
  * @param photoPath - Absolute file path (may include `file://` prefix).
  * @returns The date in `DD/MM/YYYY` format, or `null` if nothing was detected.
@@ -289,8 +143,22 @@ async function tryGroqFallback(photoPath: string): Promise<string | null> {
 export async function detectDateFromPhoto(
   photoPath: string,
 ): Promise<string | null> {
-  const result = await tryMlKit(photoPath);
-  if (result.date) return result.date;
+  const uris: string[] = [];
+  if (photoPath.startsWith("file://")) {
+    uris.push(photoPath, photoPath.replace(/^file:\/\//, ""));
+  } else {
+    uris.push("file://" + photoPath, photoPath);
+  }
 
-  return tryGroqFallback(photoPath);
+  for (const imageUri of uris) {
+    try {
+      const result = await TextRecognition.recognize(imageUri);
+      const text = result.text.trim();
+      if (text) return detectDate(text);
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
 }

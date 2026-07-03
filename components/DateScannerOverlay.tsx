@@ -10,9 +10,12 @@ type GuideLayout = {
 };
 
 type Props = {
-  onTakePhoto: () => void;
   onCancel: () => void;
   onLayoutGuide?: (layout: GuideLayout) => void;
+  /** Manual shutter handler. When omitted, the overlay runs in auto mode. */
+  onTakePhoto?: () => void;
+  /** Live status line shown under the guide while auto-scanning. */
+  statusText?: string;
 };
 
 const GUIDES = 60;
@@ -27,6 +30,7 @@ const DateScannerOverlay = memo(function DateScannerOverlay({
   onTakePhoto,
   onCancel,
   onLayoutGuide,
+  statusText,
 }: Props) {
   const insets = useSafeAreaInsets();
   const guideBoxRef = useRef<View>(null);
@@ -71,23 +75,33 @@ const DateScannerOverlay = memo(function DateScannerOverlay({
 
         <View style={styles.maskBottom}>
           <Text style={styles.hint}>
-            Apunta a la fecha de vencimiento del producto
+            {onTakePhoto
+              ? "Apunta a la fecha de vencimiento del producto"
+              : statusText ?? "Buscando la fecha automáticamente…"}
           </Text>
         </View>
       </View>
 
       <View style={[styles.bottomBtns, { paddingBottom: insets.bottom + 24 }]}>
-        <Pressable style={styles.cancelBtn} onPress={onCancel}>
-          <Text style={styles.cancelBtnText}>Cancelar</Text>
-        </Pressable>
+        {onTakePhoto ? (
+          <>
+            <Pressable style={styles.cancelBtn} onPress={onCancel}>
+              <Text style={styles.cancelBtnText}>Cancelar</Text>
+            </Pressable>
 
-        <Pressable style={styles.photoBtn} onPress={onTakePhoto}>
-          <View style={styles.photoBtnOuter}>
-            <View style={styles.photoBtnInner} />
-          </View>
-        </Pressable>
+            <Pressable style={styles.photoBtn} onPress={onTakePhoto}>
+              <View style={styles.photoBtnOuter}>
+                <View style={styles.photoBtnInner} />
+              </View>
+            </Pressable>
 
-        <View style={styles.spacer} />
+            <View style={styles.spacer} />
+          </>
+        ) : (
+          <Pressable style={styles.cancelBtn} onPress={onCancel}>
+            <Text style={styles.cancelBtnText}>Cancelar</Text>
+          </Pressable>
+        )}
       </View>
     </View>
   );

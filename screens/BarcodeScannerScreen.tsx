@@ -4,8 +4,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useFocusEffect } from "expo-router";
 import Animated, { FadeIn } from "react-native-reanimated";
 import { ActivityIndicator, Pressable, Text } from "react-native";
-import { Image as ExpoImage } from "expo-image";
-import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import {
   useCameraDevice,
   useCameraPermission,
@@ -15,7 +13,10 @@ import {
 import { useBarcodeScannerOutput } from "react-native-vision-camera-barcode-scanner";
 import { Colors } from "@/constants/theme";
 import { lookupProduct } from "services/productService";
-import { detectDateFromPhoto } from "services/dateDetection";
+import { useAutoDateScanner } from "@/hooks/useAutoDateScanner";
+import { enhanceForOcr } from "@/services/ocr/imageEnhance";
+import { computeRoiRect } from "@/services/ocr/roi";
+import type { Candidate } from "@/services/ocr/autoScanner";
 import { emptyProduct, type ProductInfo } from "types";
 import { formatDateString } from "@/helpers/format";
 import { Host } from "@expo/ui";
@@ -36,12 +37,7 @@ type ScanState =
       datePhotoUri?: string;
     }
   | { status: "not-found" }
-  | { status: "scanning-date"; product: ProductInfo }
-  | {
-      status: "processing-date";
-      product: ProductInfo;
-      previewUri?: string;
-    };
+  | { status: "scanning-date"; product: ProductInfo };
 
 type GuideRect = { x: number; y: number; width: number; height: number };
 
@@ -134,11 +130,6 @@ export default function BarcodeScannerScreen() {
   );
 
   const scannerOutput = useBarcodeScannerOutput(barcodeOptions);
-
-  const outputs = useMemo(
-    () => [scannerOutput, photoOutput],
-    [scannerOutput, photoOutput],
-  );
 
   const insets = useSafeAreaInsets();
 
@@ -253,116 +244,81 @@ export default function BarcodeScannerScreen() {
     }
   }, []);
 
-  const resolveDateResult = useCallback(
-    async (photoPath: string, product: ProductInfo) => {
-      const date = await detectDateFromPhoto(photoPath);
-      setScanState({
-        status: "found",
-        product,
-        ...(date ? { date, datePhotoUri: photoPath } : {}),
-      });
-    },
-    [],
-  );
-
-  const handleTakePhoto = useCallback(async () => {
-    const s = scanStateRef.current;
-    if (s.status !== "scanning-date") return;
-
-    const product = s.product;
-
+  /**
+   * Captures a full-resolution photo, crops it to the on-screen date guide and
+   * enhances it for OCR.  Runs only when the worklet gate reports a good frame.
+   */
+  const captureCandidate = useCallback(async (): Promise<Candidate | null> => {
     try {
       const { filePath } = await photoOutput.capturePhotoToFile(
         { enableShutterSound: false },
         {},
       );
-
-      setScanState({ status: "processing-date", product });
-
       const fileUri = filePath.startsWith("file://")
         ? filePath
         : "file://" + filePath;
 
-      const imgRef = await ImageManipulator.manipulate(fileUri).renderAsync();
-      const photoW = imgRef.width;
-      const photoH = imgRef.height;
-
       const camLayout = cameraLayoutRef.current;
-      if (!camLayout || camLayout.width <= 0 || camLayout.height <= 0) {
-        await resolveDateResult(filePath, product);
-        return;
-      }
-
-      const {
-        left: camLeft,
-        top: camTop,
-        width: camW,
-        height: camH,
-      } = camLayout;
-
       const guide = guideRectRef.current;
-      if (!guide || guide.width <= 0 || guide.height <= 0) {
-        await resolveDateResult(filePath, product);
-        return;
-      }
+      const roiFor = (w: number, h: number) =>
+        camLayout && guide
+          ? computeRoiRect({ photoW: w, photoH: h, camLayout, guide })
+          : undefined;
 
-      const { x: gx, y: gy, width: gw, height: gh } = guide;
-
-      const relGx = gx - camLeft;
-      const relGy = gy - camTop;
-
-      const coverScale = Math.max(camW / photoW, camH / photoH);
-      const overflowX = Math.max(0, (photoW * coverScale - camW) / 2);
-      const overflowY = Math.max(0, (photoH * coverScale - camH) / 2);
-
-      let cropX = (relGx + overflowX) / coverScale;
-      let cropY = (relGy + overflowY) / coverScale;
-      let cropW = gw / coverScale;
-      let cropH = gh / coverScale;
-
-      const expandW = cropW * 0.2;
-      const expandH = cropH * 0.2;
-      cropX = Math.max(0, cropX - expandW);
-      cropY = Math.max(0, cropY - expandH);
-      cropW = Math.min(photoW - cropX, cropW + expandW * 2);
-      cropH = Math.min(photoH - cropY, cropH + expandH * 2);
-
-      const manip = ImageManipulator.manipulate(fileUri);
-      manip.crop({
-        originX: cropX,
-        originY: cropY,
-        width: cropW,
-        height: cropH,
-      });
-      const rendered = await manip.renderAsync();
-      const result = await rendered.saveAsync({
-        format: SaveFormat.JPEG,
-        compress: 1.0,
-      });
-
-      setScanState({
-        status: "processing-date",
-        product,
-        previewUri: result.uri,
-      });
-
-      const date = await detectDateFromPhoto(result.uri);
-
-      if (date) {
-        setScanState({
-          status: "found",
-          product,
-          date,
-          datePhotoUri: result.uri,
-        });
-      } else {
-        await resolveDateResult(filePath, product);
-      }
+      const ocrPath = await enhanceForOcr(fileUri, { roi: roiFor });
+      return { ocrPath, photoPath: fileUri };
     } catch (e) {
-      console.warn("Take photo error:", e);
-      goToIdle();
+      console.warn("captureCandidate error:", e);
+      return null;
     }
-  }, [photoOutput, goToIdle, resolveDateResult]);
+  }, [photoOutput]);
+
+  const handleDateAccepted = useCallback((date: string, photoUri: string) => {
+    const s = scanStateRef.current;
+    if (s.status !== "scanning-date") return;
+    setScanState({
+      status: "found",
+      product: s.product,
+      date,
+      datePhotoUri: photoUri,
+    });
+  }, []);
+
+  const handleDateExhausted = useCallback(() => {
+    const s = scanStateRef.current;
+    if (s.status !== "scanning-date") return;
+    showToast("No se detectó la fecha, ingrésala manualmente");
+    setScanState({ status: "found", product: s.product });
+  }, []);
+
+  const {
+    frameOutput,
+    start: startAutoScan,
+    stop: stopAutoScan,
+    progress,
+  } = useAutoDateScanner({
+    captureCandidate,
+    onAccepted: handleDateAccepted,
+    onExhausted: handleDateExhausted,
+  });
+
+  // While scanning a date we swap the barcode scanner for the frame gate:
+  // the barcode reader isn't needed here, and this keeps the simultaneous
+  // output count low.
+  const outputs = useMemo(
+    () =>
+      scanState.status === "scanning-date"
+        ? [photoOutput, frameOutput]
+        : [scannerOutput, photoOutput],
+    [scannerOutput, photoOutput, frameOutput, scanState.status],
+  );
+
+  useEffect(() => {
+    if (scanState.status === "scanning-date") {
+      startAutoScan();
+      return () => stopAutoScan();
+    }
+  }, [scanState.status, startAutoScan, stopAutoScan]);
 
   const handleDateConfirm = useCallback(async () => {
     const s = scanStateRef.current;
@@ -494,28 +450,14 @@ export default function BarcodeScannerScreen() {
 
       {scanState.status === "scanning-date" && (
         <DateScannerOverlay
-          onTakePhoto={handleTakePhoto}
           onCancel={handleCancelDateScan}
           onLayoutGuide={handleGuideLayout}
+          statusText={
+            progress && progress.leader
+              ? `Confirmando ${progress.leader}…`
+              : "Buscando la fecha automáticamente…"
+          }
         />
-      )}
-
-      {scanState.status === "processing-date" && (
-        <View style={[StyleSheet.absoluteFill, styles.processingOverlay]}>
-          <View style={styles.processingWrap}>
-            {scanState.previewUri && (
-              <ExpoImage
-                source={{ uri: scanState.previewUri }}
-                style={styles.previewImage}
-                contentFit="contain"
-              />
-            )}
-            <View style={styles.spinnerBox}>
-              <ActivityIndicator size="large" color={Colors.primary} />
-              <Text style={styles.spinnerText}>Procesando fecha...</Text>
-            </View>
-          </View>
-        </View>
       )}
 
       {showDatePicker && Platform.OS === "android" && (
