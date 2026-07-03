@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Platform, ToastAndroid, Alert, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useFocusEffect, useRouter } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import Animated, { FadeIn } from "react-native-reanimated";
 import { ActivityIndicator, Pressable, Text } from "react-native";
 import { Image as ExpoImage } from "expo-image";
@@ -24,11 +24,17 @@ import CameraSection from "@/components/CameraSection";
 import type { CameraLayout } from "@/components/CameraSection";
 import ProductSheet from "@/components/ProductSheet";
 import DateScannerOverlay from "@/components/DateScannerOverlay";
+import { upsertProduct, addInventoryItem } from "db/repository";
 
 type ScanState =
   | { status: "idle" }
   | { status: "loading" }
-  | { status: "found"; product: ProductInfo; date?: string }
+  | {
+      status: "found";
+      product: ProductInfo;
+      date?: string;
+      datePhotoUri?: string;
+    }
   | { status: "not-found" }
   | { status: "scanning-date"; product: ProductInfo }
   | {
@@ -48,7 +54,6 @@ function showToast(msg: string) {
 }
 
 export default function BarcodeScannerScreen() {
-  const router = useRouter();
   const [cameraPosition, setCameraPosition] = useState<"back" | "front">(
     "back",
   );
@@ -251,7 +256,11 @@ export default function BarcodeScannerScreen() {
   const resolveDateResult = useCallback(
     async (photoPath: string, product: ProductInfo) => {
       const date = await detectDateFromPhoto(photoPath);
-      setScanState({ status: "found", product, ...(date ? { date } : {}) });
+      setScanState({
+        status: "found",
+        product,
+        ...(date ? { date, datePhotoUri: photoPath } : {}),
+      });
     },
     [],
   );
@@ -340,7 +349,12 @@ export default function BarcodeScannerScreen() {
       const date = await detectDateFromPhoto(result.uri);
 
       if (date) {
-        setScanState({ status: "found", product, date });
+        setScanState({
+          status: "found",
+          product,
+          date,
+          datePhotoUri: result.uri,
+        });
       } else {
         await resolveDateResult(filePath, product);
       }
@@ -350,7 +364,30 @@ export default function BarcodeScannerScreen() {
     }
   }, [photoOutput, goToIdle, resolveDateResult]);
 
-  const handleDateConfirm = useCallback(() => {
+  const handleDateConfirm = useCallback(async () => {
+    const s = scanStateRef.current;
+    if (s.status !== "found" || !s.date) return;
+
+    await upsertProduct({
+      barcode: s.product.barcode,
+      name: s.product.name,
+      brand: s.product.brand,
+      quantity: s.product.quantity,
+      ingredients: s.product.ingredients,
+      imageFrontUrl: s.product.imageFrontUrl,
+      categories: s.product.categories,
+      nutriscore: s.product.nutriscore,
+      createdAt: new Date(),
+    });
+
+    await addInventoryItem({
+      barcode: s.product.barcode,
+      expirationDate: s.date,
+      datePhotoUri: s.datePhotoUri ?? null,
+      createdAt: new Date(),
+    });
+
+    showToast("Producto guardado");
     goToIdle();
   }, [goToIdle]);
 

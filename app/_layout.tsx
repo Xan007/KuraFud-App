@@ -7,6 +7,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { Colors } from "@/constants/theme";
+import { initializeDatabase } from "../db/init";
 
 type EBProps = { children: ReactNode };
 type EBState = { error: Error | null };
@@ -74,6 +75,19 @@ class ErrorBoundary extends Component<EBProps, EBState> {
  * support, an error boundary, and the Expo Router stack navigator.
  */
 export default function RootLayout() {
+  try {
+    initializeDatabase();
+  } catch (e) {
+    return (
+      <View style={styles.initContainer}>
+        <Text style={styles.initError}>Error al iniciar la base de datos</Text>
+        <Text style={styles.initErrorDetail}>
+          {e instanceof Error ? e.message : String(e)}
+        </Text>
+      </View>
+    );
+  }
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ErrorBoundary>
@@ -101,5 +115,24 @@ const styles = StyleSheet.create({
   host: {
     flex: 1,
     backgroundColor: Colors.background,
+  },
+  initContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+    backgroundColor: Colors.background,
+  },
+  initError: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: Colors.text,
+    marginBottom: 12,
+  },
+  initErrorDetail: {
+    fontSize: 13,
+    color: Colors.textSecondary,
+    fontFamily: "monospace",
+    textAlign: "center",
   },
 });

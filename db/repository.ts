@@ -1,6 +1,13 @@
-import { eq, and, lte, gte } from "drizzle-orm";
-import { database } from "./index";
+import { eq, and, lte, gte, type InferSelectModel } from "drizzle-orm";
+import { database } from "./client";
 import { products, inventory } from "./schema";
+
+export type Product = InferSelectModel<typeof products>;
+export type InventoryItem = InferSelectModel<typeof inventory>;
+
+export type ProductWithInventory = Product & {
+  inventory: InventoryItem[];
+};
 
 export function getProduct(barcode: string) {
   return database.query.products.findFirst({

@@ -5,6 +5,7 @@
   "dependencies": {
     "@expo/ui": "~56.0.18",
     "@react-native-ml-kit/text-recognition": "^2.0.0",
+    "babel-plugin-inline-import": "^3.0.0",
     "drizzle-orm": "^0.45.2",
     "expo": "~56.0.12",
     "expo-image": "~56.0.11",
