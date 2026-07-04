@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Platform, ToastAndroid, Alert, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useFocusEffect } from "expo-router";
 import Animated, { FadeIn } from "react-native-reanimated";
-import { ActivityIndicator, Pressable, Text } from "react-native";
 import {
   useCameraDevice,
   useCameraPermission,
@@ -12,42 +11,42 @@ import {
 } from "react-native-vision-camera";
 import { useBarcodeScannerOutput } from "react-native-vision-camera-barcode-scanner";
 import { Colors } from "@/constants/theme";
+import { AppText } from "@/components/ui/Text";
+import { Button } from "@/components/ui/Button";
+import { DateTimePickerSheet } from "@/components/DateTimePickerSheet";
 import { lookupProduct } from "services/productService";
 import { useAutoDateScanner } from "@/hooks/useAutoDateScanner";
+import { computeRoiRect } from "@/services/ocr/roi";
 import type { Candidate } from "@/services/ocr/autoScanner";
 import { emptyProduct, type ProductInfo } from "types";
-import { formatDateString } from "@/helpers/format";
-import { Host } from "@expo/ui";
-import DateTimePicker from "@expo/ui/community/datetime-picker";
+import { formatDateString, parseDateString } from "@/helpers/format";
 import CameraSection from "@/components/CameraSection";
 import type { CameraLayout } from "@/components/CameraSection";
 import ProductSheet from "@/components/ProductSheet";
 import DateScannerOverlay from "@/components/DateScannerOverlay";
-import { upsertProduct, addInventoryItem } from "db/repository";
+import {
+  productRepository,
+  inventoryRepository,
+  notificationSettingsRepository,
+} from "@/db/repositories";
+import { rebuildAllReminders } from "@/services/notifications";
+import { showToast } from "@/helpers/toast";
+import { useAppTranslation } from "@/hooks/useAppTranslation";
 
 type ScanState =
   | { status: "idle" }
-  | { status: "loading" }
   | {
       status: "found";
       product: ProductInfo;
       date?: string;
       datePhotoUri?: string;
     }
-  | { status: "not-found" }
   | { status: "scanning-date"; product: ProductInfo };
 
 type GuideRect = { x: number; y: number; width: number; height: number };
 
-function showToast(msg: string) {
-  if (Platform.OS === "android") {
-    ToastAndroid.show(msg, ToastAndroid.SHORT);
-  } else {
-    Alert.alert("", msg);
-  }
-}
-
 export default function BarcodeScannerScreen() {
+  const { t } = useAppTranslation();
   const [cameraPosition, setCameraPosition] = useState<"back" | "front">(
     "back",
   );
@@ -89,26 +88,28 @@ export default function BarcodeScannerScreen() {
       if (!code) return;
 
       isScanningRef.current = false;
-      setScanState({ status: "loading" });
 
+      // Show the bottom sheet immediately with empty product — no loading.
+      setScanState({
+        status: "found",
+        product: { ...emptyProduct, barcode: code },
+      });
+
+      // Fetch product info in the background (non-blocking).
       lookupProduct(code)
         .then((p) => {
           if (p) {
-            setScanState({ status: "found", product: p });
+            setScanState((prev) =>
+              prev.status === "found" && prev.product.barcode === code
+                ? { ...prev, product: p }
+                : prev,
+            );
           } else {
-            showToast("Producto no encontrado, ingresa el nombre manualmente");
-            setScanState({
-              status: "found",
-              product: { ...emptyProduct, barcode: code },
-            });
+            showToast(t('scanner.productNotFound'));
           }
         })
         .catch(() => {
-          showToast("Error de conexion, ingresa el nombre manualmente");
-          setScanState({
-            status: "found",
-            product: { ...emptyProduct, barcode: code },
-          });
+          showToast(t('scanner.connectionError'));
         });
     },
     [],
@@ -243,17 +244,44 @@ export default function BarcodeScannerScreen() {
   }, []);
 
   /**
-   * Takes an instant snapshot from the camera preview buffer and feeds it
-   * directly to ML Kit — no pixel-level enhancement needed because the
-   * quality gate already ensures good lighting and focus.
+   * Takes an instant snapshot and, when a date-guide box is visible, crops
+   * to that region before OCR — keeps ML Kit focused on the date area for
+   * better speed and accuracy.
    */
   const captureCandidate = useCallback(async (): Promise<Candidate | null> => {
     try {
       const camera = cameraRef.current;
       if (!camera) return null;
       const snapshot = await camera.takeSnapshot();
-      const fileUri = await snapshot.saveToTemporaryFileAsync("jpg", 80);
-      return { ocrPath: fileUri, photoPath: fileUri };
+
+      // Save the full frame as evidence photo.
+      const photoPath = await snapshot.saveToTemporaryFileAsync("jpg", 80);
+
+      // Lightweight crop to the on-screen date guide (no pixel enhancement).
+      const camLayout = cameraLayoutRef.current;
+      const guide = guideRectRef.current;
+      let ocrPath = photoPath;
+
+      if (camLayout && guide && snapshot.width > 0 && snapshot.height > 0) {
+        const roi = computeRoiRect({
+          photoW: snapshot.width,
+          photoH: snapshot.height,
+          camLayout,
+          guide,
+        });
+        if (roi) {
+          const sx = Math.max(0, Math.floor(roi.x));
+          const sy = Math.max(0, Math.floor(roi.y));
+          const ex = Math.min(snapshot.width, Math.ceil(roi.x + roi.width));
+          const ey = Math.min(snapshot.height, Math.ceil(roi.y + roi.height));
+          if (ex - sx > 8 && ey - sy > 8) {
+            const cropped = snapshot.crop(sx, sy, ex, ey);
+            ocrPath = await cropped.saveToTemporaryFileAsync("jpg", 80);
+          }
+        }
+      }
+
+      return { ocrPath, photoPath };
     } catch (e) {
       console.warn("captureCandidate error:", e);
       return null;
@@ -263,6 +291,16 @@ export default function BarcodeScannerScreen() {
   const handleDateAccepted = useCallback((date: string, photoUri: string) => {
     const s = scanStateRef.current;
     if (s.status !== "scanning-date") return;
+
+    // Validate expiration year (max 4 years in future)
+    const [day, month, year] = date.split("/").map(Number);
+    const currentYear = new Date().getFullYear();
+    const maxYear = currentYear + 4;
+
+    if (year > maxYear) {
+      showToast(t('scanner.dateFarInFuture', { year }));
+    }
+
     setScanState({
       status: "found",
       product: s.product,
@@ -274,9 +312,9 @@ export default function BarcodeScannerScreen() {
   const handleDateExhausted = useCallback(() => {
     const s = scanStateRef.current;
     if (s.status !== "scanning-date") return;
-    showToast("No se detectó la fecha, ingrésala manualmente");
+    showToast(t('scanner.dateNotDetected'));
     setScanState({ status: "found", product: s.product });
-  }, []);
+  }, [t]);
 
   const {
     frameOutput,
@@ -311,7 +349,7 @@ export default function BarcodeScannerScreen() {
     const s = scanStateRef.current;
     if (s.status !== "found" || !s.date) return;
 
-    await upsertProduct({
+    await productRepository.upsertProduct({
       barcode: s.product.barcode,
       name: s.product.name,
       brand: s.product.brand,
@@ -323,16 +361,25 @@ export default function BarcodeScannerScreen() {
       createdAt: new Date(),
     });
 
-    await addInventoryItem({
+    const inserted = await inventoryRepository.addInventoryItem({
       barcode: s.product.barcode,
       expirationDate: s.date,
       datePhotoUri: s.datePhotoUri ?? null,
       createdAt: new Date(),
     });
 
-    showToast("Producto guardado");
+    try {
+      const settings = await notificationSettingsRepository.getNotificationSettings();
+      if (settings.enabled) {
+        await rebuildAllReminders();
+      }
+    } catch {
+      // Fallar silenciosamente en recordatorios — no debe bloquear el guardado
+    }
+
+    showToast(t('scanner.productSaved'));
     goToIdle();
-  }, [goToIdle]);
+  }, [goToIdle, t]);
 
   const handleDateCancel = useCallback(() => {
     goToIdle();
@@ -341,10 +388,12 @@ export default function BarcodeScannerScreen() {
   const handleDateEdit = useCallback(() => {
     const s = scanStateRef.current;
     if (s.status === "found" && s.date) {
-      const parts = s.date.split("/");
-      setPendingDate(new Date(+parts[2], +parts[1] - 1, +parts[0]));
+      const parsed = parseDateString(s.date);
+      setPendingDate(parsed);
     } else {
-      setPendingDate(new Date());
+      const today = new Date();
+      const todayUTC = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
+      setPendingDate(todayUTC);
     }
     setShowDatePicker(true);
   }, []);
@@ -365,13 +414,15 @@ export default function BarcodeScannerScreen() {
   if (hasPermission === false) {
     return (
       <Animated.View entering={FadeIn} style={styles.center}>
-        <Text style={styles.msg}>Permiso de camara requerido</Text>
-        <Pressable style={styles.btn} onPress={requestPermission}>
-          <Text style={styles.btnText}>Conceder permiso</Text>
-        </Pressable>
-        <Pressable style={styles.btn} onPress={() => router.back()}>
-          <Text style={styles.btnText}>Volver</Text>
-        </Pressable>
+        <AppText variant="body" style={styles.msg}>
+          {t('scanner.cameraPermissionRequired')}
+        </AppText>
+        <Button variant="primary" onPress={requestPermission}>
+          {t('settings.grantPermission')}
+        </Button>
+        <Button variant="secondary" onPress={() => router.back()}>
+          {t('scanner.goBack')}
+        </Button>
       </Animated.View>
     );
   }
@@ -379,10 +430,12 @@ export default function BarcodeScannerScreen() {
   if (!device) {
     return (
       <Animated.View entering={FadeIn} style={styles.center}>
-        <Text style={styles.msg}>No hay camara disponible</Text>
-        <Pressable style={styles.btn} onPress={() => router.back()}>
-          <Text style={styles.btnText}>Volver</Text>
-        </Pressable>
+        <AppText variant="body" style={styles.msg}>
+          {t('scanner.noCameraAvailable')}
+        </AppText>
+        <Button variant="primary" onPress={() => router.back()}>
+          {t('scanner.goBack')}
+        </Button>
       </Animated.View>
     );
   }
@@ -408,20 +461,6 @@ export default function BarcodeScannerScreen() {
         onCameraLayout={handleCameraLayout}
       />
 
-      {scanState.status === "loading" && (
-        <View style={[StyleSheet.absoluteFill, styles.loadingOverlay]}>
-          <View style={styles.spinnerWrap}>
-            <View style={styles.spinnerBox}>
-              <ActivityIndicator size="large" color={Colors.primary} />
-              <Text style={styles.spinnerText}>Buscando producto...</Text>
-            </View>
-            <Pressable style={styles.cancelBtn} onPress={goToIdle}>
-              <Text style={styles.cancelBtnText}>Cancelar</Text>
-            </Pressable>
-          </View>
-        </View>
-      )}
-
       {scanState.status === "found" && (
         <ProductSheet
           product={scanState.product}
@@ -441,60 +480,20 @@ export default function BarcodeScannerScreen() {
           onLayoutGuide={handleGuideLayout}
           statusText={
             progress && progress.leader
-              ? `Confirmando ${progress.leader}…`
-              : "Buscando la fecha automáticamente…"
+              ? t('scanner.confirmingDate', { date: progress.leader })
+              : t('scanner.searchingDate')
           }
         />
       )}
 
-      {showDatePicker && Platform.OS === "android" && (
-        <DateTimePicker
-          value={pendingDate}
-          mode="date"
-          display="default"
-          onChange={(event, selectedDate) => {
-            if (event.type === "set" && selectedDate) {
-              const formatted = formatDateString(selectedDate);
-              const s = scanStateRef.current;
-              if (s.status === "found") {
-                setScanState({ ...s, date: formatted });
-              }
-            }
-            setShowDatePicker(false);
-          }}
-        />
-      )}
-
-      {showDatePicker && Platform.OS === "ios" && (
-        <View style={[StyleSheet.absoluteFill, styles.datePickerBackdrop]}>
-          <Host style={styles.datePickerHost}>
-            <View style={styles.datePickerContent}>
-              <DateTimePicker
-                value={pendingDate}
-                mode="date"
-                display="spinner"
-                onChange={(event, date) => {
-                  if (date) setPendingDate(date);
-                }}
-              />
-            </View>
-            <View style={styles.datePickerActions}>
-              <Pressable
-                style={styles.datePickerBtn}
-                onPress={handleDatePickerCancel}
-              >
-                <Text style={styles.datePickerBtnTextCancel}>Cancelar</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.datePickerBtn, styles.datePickerBtnPrimary]}
-                onPress={handleDatePickerConfirm}
-              >
-                <Text style={styles.datePickerBtnTextPrimary}>Confirmar</Text>
-              </Pressable>
-            </View>
-          </Host>
-        </View>
-      )}
+      <DateTimePickerSheet
+        visible={showDatePicker}
+        mode="date"
+        value={pendingDate}
+        onChange={setPendingDate}
+        onCancel={handleDatePickerCancel}
+        onConfirm={handleDatePickerConfirm}
+      />
     </View>
   );
 }
@@ -506,119 +505,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     padding: 24,
   },
-  msg: { fontSize: 16, marginBottom: 16, textAlign: "center" },
-  btn: {
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 10,
-    borderCurve: "continuous",
-    marginTop: 8,
-  },
-  btnText: { color: "#fff", fontSize: 16, fontWeight: "600" },
-
-  spinnerWrap: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 24,
-  },
-  spinnerBox: {
-    alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.55)",
-    paddingHorizontal: 32,
-    paddingVertical: 28,
-    borderRadius: 20,
-    borderCurve: "continuous",
-  },
-  spinnerText: {
-    fontSize: 15,
-    color: "#fff",
-    marginTop: 14,
-    fontWeight: "500",
-    textAlign: "center",
-  },
-  cancelBtn: {
-    marginTop: 20,
-    paddingHorizontal: 24,
-    paddingVertical: 10,
-    borderRadius: 10,
-    borderCurve: "continuous",
-    backgroundColor: "rgba(255,255,255,0.15)",
-  },
-  cancelBtnText: {
-    color: "#fff",
-    fontSize: 14,
-    fontWeight: "600",
-  },
-
-  loadingOverlay: {
-    backgroundColor: "rgba(0,0,0,0.7)",
-    zIndex: 100,
-    elevation: 10,
-  },
-  processingOverlay: {
-    backgroundColor: "rgba(0,0,0,0.7)",
-    zIndex: 100,
-    elevation: 10,
-  },
-
-  datePickerBackdrop: {
-    backgroundColor: "rgba(0,0,0,0.6)",
-    justifyContent: "center",
-    alignItems: "center",
-    zIndex: 200,
-    elevation: 20,
-  },
-  datePickerHost: {
-    borderRadius: 16,
-    overflow: "hidden",
-    marginHorizontal: 32,
-    width: "85%",
-    maxWidth: 360,
-  },
-  datePickerContent: {
-    backgroundColor: Colors.surface,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-  },
-  datePickerActions: {
-    flexDirection: "row",
-    borderTopWidth: 1,
-    borderTopColor: Colors.border,
-  },
-  datePickerBtn: {
-    flex: 1,
-    alignItems: "center",
-    paddingVertical: 14,
-  },
-  datePickerBtnPrimary: {
-    backgroundColor: Colors.primary,
-  },
-  datePickerBtnTextCancel: {
-    color: Colors.text,
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  datePickerBtnTextPrimary: {
-    color: "#fff",
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  processingWrap: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 24,
-  },
-  previewImage: {
-    width: 220,
-    height: 140,
-    borderRadius: 12,
-    borderCurve: "continuous",
+  msg: {
     marginBottom: 16,
-    borderWidth: 2,
-    borderColor: Colors.primary,
-    backgroundColor: "#000",
+    textAlign: "center",
   },
 });

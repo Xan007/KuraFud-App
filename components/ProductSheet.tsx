@@ -1,9 +1,12 @@
 import { memo } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { StyleSheet, TextInput, View } from "react-native";
 import { SymbolView } from "expo-symbols";
-import { Colors } from "@/constants/theme";
+import { Colors, BorderRadius, Spacing, withOpacity } from "@/constants/theme";
 import type { ProductInfo } from "types";
 import SheetWrapper from "@/components/SheetWrapper";
+import { AppText } from "./ui/Text";
+import { Button } from "./ui/Button";
+import { IconButton } from "./ui/IconButton";
 
 type Props = {
   product: ProductInfo;
@@ -35,16 +38,17 @@ const ProductSheet = memo(function ProductSheet({
           onChangeText={onChangeName}
           placeholder="Nombre del producto"
           placeholderTextColor={Colors.textSecondary}
-          autoFocus={product.name === ""}
           selectTextOnFocus
         />
       ) : (
-        <Text style={styles.name} numberOfLines={2}>
+        <AppText variant="title" numberOfLines={2}>
           {product.name}
-        </Text>
+        </AppText>
       )}
       {product.brand ? (
-        <Text style={styles.brand}>{product.brand}</Text>
+        <AppText variant="body" color={Colors.textSecondary}>
+          {product.brand}
+        </AppText>
       ) : (
         <View style={styles.brandSpacer} />
       )}
@@ -57,42 +61,56 @@ const ProductSheet = memo(function ProductSheet({
             tintColor={Colors.primary}
           />
           <View style={styles.dateTextCol}>
-            <Text style={styles.dateLabel}>Vence</Text>
-            <Text
-              style={[styles.dateValue, !date && styles.dateValuePlaceholder]}
+            <AppText variant="label" color={Colors.textSecondary}>
+              Vence
+            </AppText>
+            <AppText
+              variant="subheading"
+              color={!date ? Colors.textSecondary : Colors.text}
+              style={!date && styles.dateValuePlaceholder}
             >
               {date ?? "--/--/----"}
-            </Text>
+            </AppText>
           </View>
           <View style={styles.dateActions}>
-            <Pressable style={styles.iconBtn} onPress={onEditDate}>
-              <SymbolView
-                name={{ ios: "pencil.circle", android: "edit" }}
-                size={18}
-                tintColor={Colors.primary}
-              />
-            </Pressable>
-            <Pressable style={styles.iconBtn} onPress={onScanDate}>
-              <SymbolView
-                name={{
-                  ios: "camera.viewfinder",
-                  android: "photo_camera",
-                }}
-                size={18}
-                tintColor={Colors.textSecondary}
-              />
-            </Pressable>
+            <IconButton
+              variant="subtle"
+              size="sm"
+              icon={
+                <SymbolView
+                  name={{ ios: "pencil.circle", android: "edit" }}
+                  size={18}
+                  tintColor={Colors.primary}
+                />
+              }
+              onPress={onEditDate}
+            />
+            <IconButton
+              variant="subtle"
+              size="sm"
+              icon={
+                <SymbolView
+                  name={{
+                    ios: "camera.viewfinder",
+                    android: "photo_camera",
+                  }}
+                  size={18}
+                  tintColor={Colors.textSecondary}
+                />
+              }
+              onPress={onScanDate}
+            />
           </View>
         </View>
       </View>
 
-      <Pressable style={styles.confirmBtn} onPress={onDateConfirm}>
-        <Text style={styles.confirmBtnText}>Confirmar</Text>
-      </Pressable>
+      <Button variant="primary" size="md" onPress={onDateConfirm}>
+        Confirmar
+      </Button>
 
-      <Pressable style={styles.cancelBtn} onPress={onDateCancel}>
-        <Text style={styles.cancelBtnText}>Cancelar</Text>
-      </Pressable>
+      <Button variant="secondary" size="md" onPress={onDateCancel}>
+        Cancelar
+      </Button>
     </SheetWrapper>
   );
 });
@@ -100,80 +118,32 @@ const ProductSheet = memo(function ProductSheet({
 export default ProductSheet;
 
 const styles = StyleSheet.create({
-  name: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: Colors.text,
-    marginBottom: 2,
-  },
-  brand: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    marginBottom: 12,
-  },
   brandSpacer: {
     height: 12,
   },
   dateBox: {
     backgroundColor: Colors.surface,
-    borderRadius: 12,
+    borderRadius: BorderRadius.md,
     borderCurve: "continuous",
-    marginBottom: 6,
+    marginBottom: Spacing.sm,
     overflow: "hidden",
   },
   dateRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    gap: 8,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    gap: Spacing.sm,
   },
   dateTextCol: {
     flex: 1,
   },
-  dateLabel: {
-    fontSize: 11,
-    color: Colors.textSecondary,
-    fontWeight: "500",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-    marginBottom: 1,
-  },
-  dateValue: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: Colors.text,
-    letterSpacing: 0.3,
-  },
   dateValuePlaceholder: {
-    color: Colors.textSecondary,
     fontWeight: "500",
   },
   dateActions: {
     flexDirection: "row",
     gap: 6,
-  },
-  iconBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: "rgba(52,168,83,0.1)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  confirmBtn: {
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: Colors.primary,
-    paddingVertical: 14,
-    borderRadius: 12,
-    borderCurve: "continuous",
-    marginBottom: 8,
-  },
-  confirmBtnText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "600",
   },
   nameInput: {
     fontSize: 18,
@@ -183,20 +153,5 @@ const styles = StyleSheet.create({
     borderBottomWidth: 2,
     borderBottomColor: Colors.primary,
     paddingVertical: 2,
-  },
-  cancelBtn: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderCurve: "continuous",
-    borderWidth: 1.5,
-    borderColor: Colors.border,
-    marginBottom: 4,
-  },
-  cancelBtnText: {
-    color: Colors.textSecondary,
-    fontSize: 15,
-    fontWeight: "600",
   },
 });

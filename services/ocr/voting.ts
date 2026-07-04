@@ -15,8 +15,8 @@ export type VotingConfig = {
 };
 
 export const DEFAULT_VOTING: VotingConfig = {
-  requiredVotes: 3.5,
-  leadMargin: 1.5,
+  requiredVotes: 2.0,
+  leadMargin: 1.0,
 };
 
 export type VoteState = {
@@ -40,9 +40,7 @@ export type VoteBox = {
   reset(): void;
 };
 
-export function createVoteBox(
-  config: VotingConfig = DEFAULT_VOTING,
-): VoteBox {
+export function createVoteBox(config: VotingConfig = DEFAULT_VOTING): VoteBox {
   const tally = new Map<string, number>();
   let reads = 0;
 

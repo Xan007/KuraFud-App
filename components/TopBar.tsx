@@ -1,7 +1,9 @@
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { SymbolView } from "expo-symbols";
-import { Colors, FontSize } from "@/constants/theme";
+import { Colors, BorderRadius } from "@/constants/theme";
+import { AppText } from "./ui/Text";
+import { IconButton } from "./ui/IconButton";
 
 type Props = {
   title?: string;
@@ -27,20 +29,25 @@ export default function TopBar({
     <View style={[styles.container, { paddingTop: insets.top + 4 }]}>
       <View style={styles.inner}>
         {showBack ? (
-          <Pressable style={styles.backBtn} onPress={onBack} hitSlop={12}>
-            <SymbolView
-              name={{ ios: "chevron.left", android: "chevron_left" }}
-              size={24}
-              tintColor={Colors.primary}
-            />
-          </Pressable>
+          <IconButton
+            variant="plain"
+            size="md"
+            icon={
+              <SymbolView
+                name={{ ios: "chevron.left", android: "chevron_left" }}
+                size={24}
+                tintColor={Colors.primary}
+              />
+            }
+            onPress={onBack}
+          />
         ) : (
           <View style={styles.side} />
         )}
 
-        <Text style={styles.title} numberOfLines={1}>
+        <AppText variant="title" numberOfLines={1} style={styles.title}>
           {title}
-        </Text>
+        </AppText>
 
         <View style={styles.side}>{rightSlot}</View>
       </View>
@@ -53,7 +60,7 @@ const styles = StyleSheet.create({
     paddingBottom: 10,
     paddingHorizontal: 16,
     backgroundColor: Colors.background,
-    boxShadow: "0 1px 3px rgba(0, 0, 0, 0.08)",
+    boxShadow: `0 1px 3px ${Colors.shadow}`,
   },
   inner: {
     flexDirection: "row",
@@ -61,15 +68,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     minHeight: 44,
   },
-  backBtn: {
-    padding: 8,
-    justifyContent: "center",
-    alignItems: "center",
-  },
   title: {
-    fontSize: FontSize.xl,
-    fontWeight: "700",
-    color: Colors.text,
     textAlign: "center",
     flex: 1,
     letterSpacing: -0.3,

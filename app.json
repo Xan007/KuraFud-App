@@ -31,7 +31,16 @@
     "plugins": [
       "expo-router",
       "expo-image",
-      "expo-sqlite"
+      "expo-sqlite",
+      "react-native-bottom-tabs",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/android-icon-monochrome.png",
+          "color": "#34A853",
+          "sounds": []
+        }
+      ]
     ]
   }
 }

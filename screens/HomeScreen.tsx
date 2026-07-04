@@ -1,31 +1,46 @@
 import { useCallback, useState } from "react";
 import { useRouter, useFocusEffect } from "expo-router";
-import { Spacing, Colors } from "@/constants/theme";
+import { Spacing, Colors, BorderRadius } from "@/constants/theme";
 import TopBar from "components/TopBar";
 import {
   FlatList,
   Pressable,
+  ScrollView,
   StyleSheet,
-  Text,
   useWindowDimensions,
   View,
 } from "react-native";
 import { SymbolView } from "expo-symbols";
-import { getAllProducts, type ProductWithInventory } from "db/repository";
+import { inventoryRepository } from "@/db/repositories";
+import type { InventoryItem } from "@/db/schema";
+import { AppText } from "@/components/ui/Text";
+import { Button } from "@/components/ui/Button";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { useAppTranslation } from "@/hooks/useAppTranslation";
+
+type ExpiringItem = InventoryItem & { productName: string; productBarcode: string };
 
 export default function HomeScreen() {
   const { width, height } = useWindowDimensions();
   const router = useRouter();
-  const [products, setProducts] = useState<ProductWithInventory[]>([]);
+  const { t } = useAppTranslation();
+  const [expiringItems, setExpiringItems] = useState<ExpiringItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   useFocusEffect(
     useCallback(() => {
       let mounted = true;
       setLoading(true);
-      getAllProducts()
-        .then((data) => {
-          if (mounted) setProducts(data);
+      inventoryRepository.getExpiringItems(7)
+        .then((items) => {
+          if (mounted) {
+            const typed = items.map((item) => ({
+              ...item,
+              productName: item.product.name || "Producto",
+              productBarcode: item.product.barcode,
+            }));
+            setExpiringItems(typed);
+          }
         })
         .finally(() => {
           if (mounted) setLoading(false);
@@ -40,157 +55,105 @@ export default function HomeScreen() {
     <View style={{ width, height }}>
       <TopBar title="Expirat" />
 
-      {products.length === 0 && !loading ? (
-        <View style={styles.body}>
-          <SymbolView
-            name={{ ios: "barcode.viewfinder", android: "barcode_scanner" }}
-            size={48}
-            tintColor={Colors.textSecondary}
-          />
-          <Text style={styles.subtitle}>
-            Escanea codigos de barras de alimentos
-          </Text>
-          <Pressable
-            style={styles.button}
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Scan button - always visible at top */}
+        <View style={styles.scanSection}>
+          <Button
+            variant="primary"
+            size="md"
             onPress={() => router.push("/scanner")}
           >
-            <Text style={styles.buttonText}>Escanear codigo de barras</Text>
-          </Pressable>
+            {t('home.scanProduct')}
+          </Button>
         </View>
-      ) : (
-        <FlatList
-          data={products}
-          keyExtractor={(item) => item.barcode}
-          contentContainerStyle={styles.list}
-          ListHeaderComponent={
-            <View style={styles.listHeader}>
-              <Text style={styles.listTitle}>Tus productos</Text>
-              <Pressable
-                style={styles.addBtn}
-                onPress={() => router.push("/scanner")}
-              >
-                <SymbolView
-                  name={{ ios: "plus", android: "add" }}
-                  size={18}
-                  tintColor="#fff"
-                />
-              </Pressable>
-            </View>
-          }
-          renderItem={({ item }) => (
-            <Pressable
-              style={styles.card}
-              onPress={() => router.push(`/product/${item.barcode}`)}
-            >
-              <View style={styles.cardBody}>
-                <Text style={styles.cardName} numberOfLines={1}>
-                  {item.name || "Producto"}
-                </Text>
-                <Text style={styles.cardBarcode}>{item.barcode}</Text>
-                {item.inventory.length > 0 && (
-                  <View style={styles.expirationList}>
-                    {item.inventory.map((inv) => (
-                      <Text key={inv.id} style={styles.expirationItem}>
-                        Vence: {inv.expirationDate}
-                      </Text>
-                    ))}
+
+        {/* Expiring items section */}
+        {expiringItems.length > 0 && (
+          <View style={styles.section}>
+            <AppText variant="heading">{t('home.expiringIn7Days')}</AppText>
+            <View style={styles.itemsList}>
+              {expiringItems.map((item) => (
+                <Pressable
+                  key={item.id}
+                  style={styles.expiringCard}
+                  onPress={() => router.push(`/product/${item.productBarcode}`)}
+                >
+                  <View style={styles.expiringCardBody}>
+                    <AppText variant="subheading" numberOfLines={1}>
+                      {item.productName}
+                    </AppText>
+                    <AppText variant="body" color={Colors.textSecondary}>
+                      {t('home.expiresLabel')} {item.expirationDate}
+                    </AppText>
                   </View>
-                )}
-              </View>
+                  <SymbolView
+                    name={{ ios: "chevron.right", android: "chevron_right" }}
+                    size={16}
+                    tintColor={Colors.textSecondary}
+                  />
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        )}
+
+        {/* Empty state - only when no items and not loading */}
+        {expiringItems.length === 0 && !loading && (
+          <EmptyState
+            icon={
               <SymbolView
-                name={{ ios: "chevron.right", android: "chevron_right" }}
-                size={16}
-                tintColor={Colors.textSecondary}
+                name={{ ios: "checkmark.circle", android: "check_circle" }}
+                size={48}
+                tintColor={Colors.primary}
               />
-            </Pressable>
-          )}
-        />
-      )}
+            }
+            title={t('home.nothingExpiringSoon')}
+            subtitle={t('home.allProductsGood')}
+          />
+        )}
+      </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  body: {
+  scrollView: {
     flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: Spacing.xl,
-    gap: 16,
   },
-  subtitle: {
-    fontSize: 20,
-    textAlign: "center",
-    color: "#666",
-    marginBottom: Spacing.lg,
-  },
-  button: {
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 24,
-    paddingVertical: 14,
-    borderRadius: 12,
-    borderCurve: "continuous",
-  },
-  buttonText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  list: {
+  scrollContent: {
     paddingBottom: 32,
   },
-  listHeader: {
+  scanSection: {
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.lg,
+  },
+  scanButton: {
+    flexDirection: "row",
+    gap: Spacing.sm,
+  },
+  section: {
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.lg,
+    gap: Spacing.md,
+  },
+  itemsList: {
+    gap: Spacing.sm,
+  },
+  expiringCard: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  listTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: Colors.text,
-  },
-  addBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: Colors.primary,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  card: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginHorizontal: 16,
-    marginBottom: 10,
-    padding: 14,
+    padding: Spacing.md,
     backgroundColor: Colors.surface,
-    borderRadius: 14,
+    borderRadius: BorderRadius.md,
     borderCurve: "continuous",
-    gap: 12,
+    gap: Spacing.md,
   },
-  cardBody: {
+  expiringCardBody: {
     flex: 1,
-  },
-  cardName: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: Colors.text,
-    marginBottom: 2,
-  },
-  cardBarcode: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-    fontFamily: "monospace",
-    marginBottom: 4,
-  },
-  expirationList: {
-    marginTop: 4,
-    gap: 2,
-  },
-  expirationItem: {
-    fontSize: 13,
-    color: Colors.textSecondary,
+    gap: Spacing.xs,
   },
 });

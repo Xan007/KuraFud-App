@@ -1,7 +1,10 @@
 import { memo, useEffect, useRef } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { SymbolView } from "expo-symbols";
 import { Camera, type CameraRef } from "react-native-vision-camera";
+import { Colors, BorderRadius } from "@/constants/theme";
+import { AppText } from "./ui/Text";
+import { IconButton } from "./ui/IconButton";
 
 export type CameraLayout = {
   left: number;
@@ -80,53 +83,82 @@ const CameraSection = memo(function CameraSection({
         style={[StyleSheet.absoluteFill, { zIndex: 10 }]}
         pointerEvents="box-none"
       >
-        <Pressable
-          style={[styles.backBtn, { top: insets.top + 8 }]}
-          onPress={onBack}
-        >
-          <SymbolView
-            name={{ ios: "chevron.left", android: "chevron_left" }}
-            size={24}
-            tintColor="#fff"
+        <View style={[styles.backBtn, { top: insets.top + 8 }]}>
+          <IconButton
+            variant="overlay"
+            size="md"
+            icon={
+              <SymbolView
+                name={{ ios: "chevron.left", android: "chevron_left" }}
+                size={24}
+                tintColor={Colors.white}
+              />
+            }
+            onPress={onBack}
           />
-        </Pressable>
+        </View>
 
         <View style={[styles.controls, { top: insets.top + 8 }]}>
           {hasTorch ? (
-            <Pressable
-              style={[styles.ctrlBtn, torch === "on" && styles.ctrlActive]}
-              onPress={onToggleTorch}
-            >
+            <View style={torch === "on" && styles.ctrlActive}>
+              <IconButton
+                variant="overlay"
+                size="md"
+                icon={
+                  <SymbolView
+                    name={{
+                      ios: torch === "off" ? "bolt.slash" : "bolt.fill",
+                      android: torch === "off" ? "flash_off" : "flash_on",
+                    }}
+                    size={20}
+                    tintColor={Colors.white}
+                  />
+                }
+                onPress={onToggleTorch}
+              />
+            </View>
+          ) : null}
+          <IconButton
+            variant="overlay"
+            size="md"
+            icon={
               <SymbolView
                 name={{
-                  ios: torch === "off" ? "bolt.slash" : "bolt.fill",
-                  android: torch === "off" ? "flash_off" : "flash_on",
+                  ios: "arrow.triangle.2.circlepath",
+                  android: "flip_camera_android",
                 }}
                 size={20}
-                tintColor="#fff"
+                tintColor={Colors.white}
               />
-            </Pressable>
-          ) : null}
-          <Pressable style={styles.ctrlBtn} onPress={onToggleCamera}>
-            <SymbolView
-              name={{
-                ios: "arrow.triangle.2.circlepath",
-                android: "flip_camera_android",
-              }}
-              size={20}
-              tintColor="#fff"
-            />
-          </Pressable>
+            }
+            onPress={onToggleCamera}
+          />
         </View>
 
         <View style={styles.zoom}>
-          <Pressable style={styles.zoomBtn} onPress={onZoomIn}>
-            <Text style={styles.zoomBtnText}>+</Text>
-          </Pressable>
-          <Text style={styles.zoomLabel}>{zoomLabel}</Text>
-          <Pressable style={styles.zoomBtn} onPress={onZoomOut}>
-            <Text style={styles.zoomBtnText}>-</Text>
-          </Pressable>
+          <IconButton
+            variant="overlay"
+            size="md"
+            icon={
+              <AppText variant="button" color={Colors.white}>
+                +
+              </AppText>
+            }
+            onPress={onZoomIn}
+          />
+          <AppText variant="caption" color={Colors.white} style={styles.zoomLabel}>
+            {zoomLabel}
+          </AppText>
+          <IconButton
+            variant="overlay"
+            size="md"
+            icon={
+              <AppText variant="button" color={Colors.white}>
+                -
+              </AppText>
+            }
+            onPress={onZoomOut}
+          />
         </View>
       </View>
     </View>
@@ -142,10 +174,8 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "rgba(0,0,0,0.45)",
     justifyContent: "center",
     alignItems: "center",
-    borderCurve: "continuous",
   },
   controls: {
     position: "absolute",
@@ -153,17 +183,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 8,
   },
-  ctrlBtn: {
+  ctrlActive: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "rgba(0,0,0,0.45)",
+    backgroundColor: Colors.overlayLight,
     justifyContent: "center",
     alignItems: "center",
-    borderCurve: "continuous",
-  },
-  ctrlActive: {
-    backgroundColor: "rgba(255,255,255,0.25)",
   },
   zoom: {
     position: "absolute",
@@ -173,24 +199,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  zoomBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "rgba(0,0,0,0.45)",
-    justifyContent: "center",
-    alignItems: "center",
-    borderCurve: "continuous",
-  },
-  zoomBtnText: {
-    color: "#fff",
-    fontSize: 22,
-    fontWeight: "600",
-    lineHeight: 24,
-  },
   zoomLabel: {
-    color: "#fff",
-    fontSize: 11,
     marginVertical: 4,
     textAlign: "center",
   },

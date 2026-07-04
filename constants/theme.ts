@@ -9,6 +9,13 @@ export const Colors = {
   white: "#FFFFFF",
   warning: "#F59E0B",
   error: "#EF4444",
+  // New semantic colors
+  overlay: "rgba(0,0,0,0.5)",
+  overlayLight: "rgba(255,255,255,0.25)",
+  shadow: "rgba(0,0,0,0.08)",
+  errorSurface: "#FEE2E2",
+  errorTextStrong: "#7F1D1D",
+  errorTextMuted: "#991B1B",
 } as const;
 
 /** Spacing tokens for consistent layout. */
@@ -27,4 +34,71 @@ export const FontSize = {
   lg: 16,
   xl: 20,
   xxl: 28,
+} as const;
+
+/** Font weight scale. */
+export const FontWeight = {
+  regular: "400" as const,
+  medium: "500" as const,
+  semibold: "600" as const,
+  bold: "700" as const,
+} as const;
+
+/** Border radius scale. */
+export const BorderRadius = {
+  sm: 8,
+  md: 12,
+  lg: 16,
+  xl: 20,
+  pill: 999,
+} as const;
+
+/** Helper to add opacity to a color hex string. */
+export function withOpacity(hexColor: string, alpha: number): string {
+  // Convert hex to RGB
+  const hex = hexColor.replace("#", "");
+  const r = parseInt(hex.substring(0, 2), 16);
+  const g = parseInt(hex.substring(2, 4), 16);
+  const b = parseInt(hex.substring(4, 6), 16);
+  // Clamp alpha to 0-1
+  const clampedAlpha = Math.max(0, Math.min(1, alpha));
+  return `rgba(${r},${g},${b},${clampedAlpha})`;
+}
+
+/** Typography presets combining fontSize, fontWeight, and optional letterSpacing. */
+export const Typography = {
+  title: {
+    fontSize: FontSize.xl,
+    fontWeight: FontWeight.bold,
+  },
+  heading: {
+    fontSize: FontSize.lg,
+    fontWeight: FontWeight.semibold,
+  },
+  subheading: {
+    fontSize: FontSize.md,
+    fontWeight: FontWeight.semibold,
+  },
+  body: {
+    fontSize: FontSize.md,
+    fontWeight: FontWeight.regular,
+  },
+  bodyMedium: {
+    fontSize: FontSize.md,
+    fontWeight: FontWeight.medium,
+  },
+  caption: {
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.regular,
+  },
+  label: {
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.semibold,
+    letterSpacing: 0.5,
+    textTransform: "uppercase" as const,
+  },
+  button: {
+    fontSize: FontSize.md,
+    fontWeight: FontWeight.semibold,
+  },
 } as const;

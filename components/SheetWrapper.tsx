@@ -7,7 +7,7 @@ import Animated, {
   runOnJS,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Colors } from "@/constants/theme";
+import { Colors, BorderRadius } from "@/constants/theme";
 
 type SheetWrapperProps = {
   onDismiss: () => void;
@@ -82,7 +82,7 @@ export default SheetWrapper;
 const styles = StyleSheet.create({
   backdrop: {
     ...StyleSheet.absoluteFill,
-    backgroundColor: "#000",
+    backgroundColor: "rgba(0,0,0,0.2)",
   },
   container: {
     ...StyleSheet.absoluteFill,
@@ -95,8 +95,8 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     backgroundColor: Colors.background,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    borderTopLeftRadius: BorderRadius.xl,
+    borderTopRightRadius: BorderRadius.xl,
     paddingHorizontal: 20,
     paddingTop: 12,
   },

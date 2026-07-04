@@ -58,9 +58,9 @@ export function createAutoScanner(config: AutoScannerConfig): AutoScanner {
     onExhausted,
     onProgress,
     onError,
-    minCaptureIntervalMs = 150,
-    maxAttempts = 8,
-    timeoutMs = 10000,
+    minCaptureIntervalMs = 100,
+    maxAttempts = Infinity,
+    timeoutMs = 6000,
     voting = { requiredVotes: 2.5, leadMargin: 1.0 },
   } = config;
 
@@ -71,6 +71,8 @@ export function createAutoScanner(config: AutoScannerConfig): AutoScanner {
   let attempts = 0;
   let lastCaptureAt = 0;
   let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
+  let votingTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
+  let hasDetectedDate = false;
 
   function clearTimer() {
     if (timeoutTimer) {
@@ -79,9 +81,27 @@ export function createAutoScanner(config: AutoScannerConfig): AutoScanner {
     }
   }
 
+  function clearVotingTimer() {
+    if (votingTimeoutTimer) {
+      clearTimeout(votingTimeoutTimer);
+      votingTimeoutTimer = null;
+    }
+  }
+
+  function startVotingTimeout() {
+    clearVotingTimer();
+    votingTimeoutTimer = setTimeout(() => {
+      if (running && hasDetectedDate) {
+        votes.reset();
+        hasDetectedDate = false;
+      }
+    }, timeoutMs);
+  }
+
   function stop() {
     running = false;
     clearTimer();
+    clearVotingTimer();
   }
 
   function report(
@@ -122,6 +142,13 @@ export function createAutoScanner(config: AutoScannerConfig): AutoScanner {
       }
 
       const date = detectDate(text);
+
+      // Start voting timeout when we detect the first date
+      if (date && !hasDetectedDate) {
+        hasDetectedDate = true;
+        startVotingTimeout();
+      }
+
       const state = votes.add(date, qualityScore);
       report(
         date ? "voted" : "no-date",
@@ -139,10 +166,6 @@ export function createAutoScanner(config: AutoScannerConfig): AutoScanner {
       onError?.(e instanceof Error ? e : new Error(String(e)));
     } finally {
       inFlight = false;
-      if (running && attempts >= maxAttempts) {
-        stop();
-        onExhausted?.();
-      }
     }
   }
 
@@ -154,13 +177,9 @@ export function createAutoScanner(config: AutoScannerConfig): AutoScanner {
       attempts = 0;
       lastCaptureAt = 0;
       votes.reset();
+      hasDetectedDate = false;
       clearTimer();
-      timeoutTimer = setTimeout(() => {
-        if (running) {
-          stop();
-          onExhausted?.();
-        }
-      }, timeoutMs);
+      clearVotingTimer();
     },
     stop,
     submit,

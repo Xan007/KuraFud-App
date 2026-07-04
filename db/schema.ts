@@ -20,5 +20,50 @@ export const inventory = sqliteTable("inventory", {
   expirationDate: text("expiration_date").notNull(),
   datePhotoUri: text("date_photo_uri"),
   notes: text("notes").notNull().default(""),
+  consumedAt: integer("consumed_at", { mode: "timestamp" }),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
+
+export const notificationSettings = sqliteTable("notification_settings", {
+  id: integer("id").primaryKey(),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(false),
+  reminderHour: integer("reminder_hour").notNull().default(6),
+  reminderMinute: integer("reminder_minute").notNull().default(0),
+});
+
+export const reminderOffsets = sqliteTable("reminder_offsets", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  days: integer("days").notNull().unique(),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+});
+
+export const reminderBatches = sqliteTable("reminder_batches", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  offsetDays: integer("offset_days").notNull(),
+  notificationId: text("notification_id").notNull(),
+  scheduledFor: integer("scheduled_for", { mode: "timestamp" }).notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
+export const reminderBatchItems = sqliteTable("reminder_batch_items", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  batchId: integer("batch_id")
+    .notNull()
+    .references(() => reminderBatches.id, { onDelete: "cascade" }),
+  inventoryId: integer("inventory_id")
+    .notNull()
+    .references(() => inventory.id, { onDelete: "cascade" }),
+});
+
+// Type exports for use across the app
+export type Product = typeof products.$inferSelect;
+export type InventoryItem = typeof inventory.$inferSelect;
+export type NotificationSettings = typeof notificationSettings.$inferSelect;
+export type ReminderOffset = typeof reminderOffsets.$inferSelect;
+export type ReminderBatch = typeof reminderBatches.$inferSelect;
+export type ReminderBatchItem = typeof reminderBatchItems.$inferSelect;
+
+// Inferred type for products with nested inventory items
+export type ProductWithInventory = Product & {
+  inventory: InventoryItem[];
+};

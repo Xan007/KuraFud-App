@@ -1,13 +1,22 @@
 import { Host } from "@expo/ui";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { Component, type ReactNode } from "react";
+import { Component, type ReactNode, useEffect } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
 
 import { Colors } from "@/constants/theme";
 import { initializeDatabase } from "../db/init";
+import {
+  configureNotificationHandler,
+  ensureNotificationChannel,
+  addNotificationTapListener,
+  rebuildAllReminders,
+} from "@/services/notifications";
+import { cleanupExpiredInventory } from "@/services/inventoryCleanup";
+import { initializeI18n } from "@/services/i18n";
 
 type EBProps = { children: ReactNode };
 type EBState = { error: Error | null };
@@ -72,9 +81,26 @@ class ErrorBoundary extends Component<EBProps, EBState> {
 
 /**
  * Root layout wrapping the entire app with gesture handling, safe-area
- * support, an error boundary, and the Expo Router stack navigator.
+ * support, an error boundary, the Expo Router stack navigator, and
+ * notification setup.
  */
 export default function RootLayout() {
+  const router = useRouter();
+
+  useEffect(() => {
+    initializeI18n().catch(console.error);
+    configureNotificationHandler();
+    ensureNotificationChannel().catch(() => {});
+    cleanupExpiredInventory().catch(() => {});
+    rebuildAllReminders().catch(() => {});
+
+    const unsubscribe = addNotificationTapListener(() => {
+      router.replace("/(tabs)");
+    });
+
+    return unsubscribe;
+  }, [router]);
+
   try {
     initializeDatabase();
   } catch (e) {
@@ -100,7 +126,7 @@ export default function RootLayout() {
                 animation: "slide_from_right",
               }}
             >
-              <Stack.Screen name="index" />
+              <Stack.Screen name="(tabs)" />
               <Stack.Screen name="scanner" />
               <Stack.Screen name="product/[barcode]" />
             </Stack>

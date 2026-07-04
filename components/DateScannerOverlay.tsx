@@ -1,6 +1,10 @@
 import { memo, useCallback, useRef } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Colors, BorderRadius } from "@/constants/theme";
+import { AppText } from "./ui/Text";
+import { IconButton } from "./ui/IconButton";
+import { SymbolView } from "expo-symbols";
 
 type GuideLayout = {
   x: number;
@@ -55,7 +59,9 @@ const DateScannerOverlay = memo(function DateScannerOverlay({
     >
       <View style={StyleSheet.absoluteFill} pointerEvents="none">
         <View style={[styles.maskTop, { paddingTop: insets.top + 12 }]}>
-          <Text style={styles.title}>Escanea la fecha de vencimiento</Text>
+          <AppText variant="heading" color={Colors.white}>
+            Escanea la fecha de vencimiento
+          </AppText>
         </View>
 
         <View style={styles.guideRow}>
@@ -74,33 +80,57 @@ const DateScannerOverlay = memo(function DateScannerOverlay({
         </View>
 
         <View style={styles.maskBottom}>
-          <Text style={styles.hint}>
+          <AppText
+            variant="body"
+            color={Colors.overlayLight}
+            style={styles.hint}
+          >
             {onTakePhoto
               ? "Apunta a la fecha de vencimiento del producto"
               : statusText ?? "Buscando la fecha automáticamente…"}
-          </Text>
+          </AppText>
         </View>
       </View>
 
       <View style={[styles.bottomBtns, { paddingBottom: insets.bottom + 24 }]}>
         {onTakePhoto ? (
           <>
-            <Pressable style={styles.cancelBtn} onPress={onCancel}>
-              <Text style={styles.cancelBtnText}>Cancelar</Text>
-            </Pressable>
+            <View style={styles.cancelBtn}>
+              <IconButton
+                variant="overlay"
+                size="sm"
+                icon={
+                  <AppText variant="button" color={Colors.white}>
+                    Cancelar
+                  </AppText>
+                }
+                onPress={onCancel}
+              />
+            </View>
 
-            <Pressable style={styles.photoBtn} onPress={onTakePhoto}>
+            <View
+              style={styles.photoBtn}
+            >
               <View style={styles.photoBtnOuter}>
                 <View style={styles.photoBtnInner} />
               </View>
-            </Pressable>
+            </View>
 
             <View style={styles.spacer} />
           </>
         ) : (
-          <Pressable style={styles.cancelBtn} onPress={onCancel}>
-            <Text style={styles.cancelBtnText}>Cancelar</Text>
-          </Pressable>
+          <View style={styles.cancelBtn}>
+            <IconButton
+              variant="overlay"
+              size="sm"
+              icon={
+                <AppText variant="button" color={Colors.white}>
+                  Cancelar
+                </AppText>
+              }
+              onPress={onCancel}
+            />
+          </View>
         )}
       </View>
     </View>
@@ -116,15 +146,9 @@ const styles = StyleSheet.create({
   },
   maskTop: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
+    backgroundColor: Colors.overlay,
     alignItems: "center",
     justifyContent: "center",
-  },
-  title: {
-    color: "#fff",
-    fontSize: 17,
-    fontWeight: "600",
-    letterSpacing: 0.3,
   },
   guideRow: {
     flexDirection: "row",
@@ -132,7 +156,7 @@ const styles = StyleSheet.create({
   },
   maskSide: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
+    backgroundColor: Colors.overlay,
   },
   guideBox: {
     width: GUIDES * 4,
@@ -147,8 +171,8 @@ const styles = StyleSheet.create({
     height: CORNER,
     borderTopWidth: 3,
     borderLeftWidth: 3,
-    borderColor: "#fff",
-    borderTopLeftRadius: 8,
+    borderColor: Colors.white,
+    borderTopLeftRadius: BorderRadius.sm,
   },
   guideCornerTR: {
     position: "absolute",
@@ -158,8 +182,8 @@ const styles = StyleSheet.create({
     height: CORNER,
     borderTopWidth: 3,
     borderRightWidth: 3,
-    borderColor: "#fff",
-    borderTopRightRadius: 8,
+    borderColor: Colors.white,
+    borderTopRightRadius: BorderRadius.sm,
   },
   guideCornerBL: {
     position: "absolute",
@@ -169,8 +193,8 @@ const styles = StyleSheet.create({
     height: CORNER,
     borderBottomWidth: 3,
     borderLeftWidth: 3,
-    borderColor: "#fff",
-    borderBottomLeftRadius: 8,
+    borderColor: Colors.white,
+    borderBottomLeftRadius: BorderRadius.sm,
   },
   guideCornerBR: {
     position: "absolute",
@@ -180,19 +204,17 @@ const styles = StyleSheet.create({
     height: CORNER,
     borderBottomWidth: 3,
     borderRightWidth: 3,
-    borderColor: "#fff",
-    borderBottomRightRadius: 8,
+    borderColor: Colors.white,
+    borderBottomRightRadius: BorderRadius.sm,
   },
   maskBottom: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
+    backgroundColor: Colors.overlay,
     alignItems: "center",
     paddingTop: 20,
     paddingHorizontal: 32,
   },
   hint: {
-    color: "rgba(255,255,255,0.8)",
-    fontSize: 15,
     textAlign: "center",
     lineHeight: 22,
   },
@@ -208,16 +230,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
   },
   cancelBtn: {
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 10,
-    borderCurve: "continuous",
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: "center",
+    alignItems: "center",
     backgroundColor: "rgba(255,255,255,0.15)",
-  },
-  cancelBtnText: {
-    color: "#fff",
-    fontSize: 15,
-    fontWeight: "600",
   },
   photoBtn: {
     width: 72,
@@ -225,13 +243,13 @@ const styles = StyleSheet.create({
     borderRadius: 36,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.25)",
+    backgroundColor: Colors.overlayLight,
   },
   photoBtnOuter: {
     width: 60,
     height: 60,
     borderRadius: 30,
-    backgroundColor: "#fff",
+    backgroundColor: Colors.white,
     justifyContent: "center",
     alignItems: "center",
   },
@@ -239,7 +257,7 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 26,
-    backgroundColor: "#fff",
+    backgroundColor: Colors.white,
     borderWidth: 3,
     borderColor: "#ddd",
   },
