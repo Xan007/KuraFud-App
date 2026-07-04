@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useFocusEffect } from "expo-router";
-import Animated, { FadeIn } from "react-native-reanimated";
+import Animated, { FadeIn, FadeOut, SlideInUp, SlideOutDown } from "react-native-reanimated";
 import {
   useCameraDevice,
   useCameraPermission,
@@ -462,28 +462,38 @@ export default function BarcodeScannerScreen() {
       />
 
       {scanState.status === "found" && (
-        <ProductSheet
-          product={scanState.product}
-          date={scanState.date}
-          onDismiss={goToIdle}
-          onScanDate={handleScanDate}
-          onDateConfirm={handleDateConfirm}
-          onDateCancel={handleDateCancel}
-          onEditDate={handleDateEdit}
-          onChangeName={handleChangeName}
-        />
+        <Animated.View
+          entering={SlideInUp.duration(300).springify()}
+          exiting={SlideOutDown.duration(250)}
+        >
+          <ProductSheet
+            product={scanState.product}
+            date={scanState.date}
+            onDismiss={goToIdle}
+            onScanDate={handleScanDate}
+            onDateConfirm={handleDateConfirm}
+            onDateCancel={handleDateCancel}
+            onEditDate={handleDateEdit}
+            onChangeName={handleChangeName}
+          />
+        </Animated.View>
       )}
 
       {scanState.status === "scanning-date" && (
-        <DateScannerOverlay
-          onCancel={handleCancelDateScan}
-          onLayoutGuide={handleGuideLayout}
-          statusText={
-            progress && progress.leader
-              ? t('scanner.confirmingDate', { date: progress.leader })
-              : t('scanner.searchingDate')
-          }
-        />
+        <Animated.View
+          entering={FadeIn.duration(250)}
+          exiting={FadeOut.duration(200)}
+        >
+          <DateScannerOverlay
+            onCancel={handleCancelDateScan}
+            onLayoutGuide={handleGuideLayout}
+            statusText={
+              progress && progress.leader
+                ? t('scanner.confirmingDate', { date: progress.leader })
+                : t('scanner.searchingDate')
+            }
+          />
+        </Animated.View>
       )}
 
       <DateTimePickerSheet

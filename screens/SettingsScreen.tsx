@@ -4,6 +4,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import { useFocusEffect } from "expo-router";
 import {
   Linking,
   Pressable,
@@ -13,6 +14,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import Animated, { FadeIn, FadeOut, FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { SymbolView } from "expo-symbols";
 
@@ -280,7 +282,10 @@ export default function SettingsScreen() {
             </Pressable>
 
             {showOffsets && (
-              <>
+              <Animated.View
+                entering={FadeInDown.duration(300)}
+                exiting={FadeOut.duration(200)}
+              >
                 {offsets.length > 0 && (
                   <View style={styles.offsetsList}>
                     {offsets.map((offset) => (
@@ -343,7 +348,7 @@ export default function SettingsScreen() {
                     {t('settings.add')}
                   </Button>
                 </View>
-              </>
+              </Animated.View>
             )}
           </>
         )}
@@ -359,13 +364,11 @@ export default function SettingsScreen() {
         <View style={styles.languageOptionsContainer}>
           <LanguageOption
             label={t('settings.spanish')}
-            value="es"
             selected={currentLanguage === 'es'}
             onPress={() => changeLanguage('es')}
           />
           <LanguageOption
             label={t('settings.english')}
-            value="en"
             selected={currentLanguage === 'en'}
             onPress={() => changeLanguage('en')}
           />

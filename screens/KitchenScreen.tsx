@@ -1,4 +1,5 @@
 import { StyleSheet, Text, View } from "react-native";
+import Animated, { FadeIn } from "react-native-reanimated";
 import { Colors } from "@/constants/theme";
 import TopBar from "components/TopBar";
 import { useAppTranslation } from "@/hooks/useAppTranslation";
@@ -9,10 +10,10 @@ export default function KitchenScreen() {
   return (
     <View style={styles.container}>
       <TopBar title={t('kitchen.title')} />
-      <View style={styles.content}>
+      <Animated.View style={styles.content} entering={FadeIn.duration(400)}>
         <Text style={styles.title}>{t('kitchen.comingSoon')}</Text>
         <Text style={styles.subtitle}>{t('kitchen.featureComingSoon')}</Text>
-      </View>
+      </Animated.View>
     </View>
   );
 }

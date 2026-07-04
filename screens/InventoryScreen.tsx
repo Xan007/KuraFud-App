@@ -9,9 +9,18 @@ import {
   Text,
   useWindowDimensions,
   View,
-  Animated,
   Alert,
 } from "react-native";
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  withSpring,
+  FadeIn,
+  FadeOut,
+  LinearTransition,
+  FadeInDown,
+} from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { SymbolView } from "expo-symbols";
 import * as Haptics from "expo-haptics";
@@ -96,117 +105,56 @@ export default function InventoryScreen() {
   const [loading, setLoading] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
 
-  const fabRotation = useRef(new Animated.Value(0)).current;
-  const fabScale = useRef(new Animated.Value(1)).current;
-  const menuOpacity = useRef(new Animated.Value(0)).current;
-  const menuScale = useRef(new Animated.Value(0.7)).current;
-  const item1Opacity = useRef(new Animated.Value(0)).current;
-  const item1Translate = useRef(new Animated.Value(20)).current;
-  const item2Opacity = useRef(new Animated.Value(0)).current;
-  const item2Translate = useRef(new Animated.Value(20)).current;
+  const fabRotation = useSharedValue(0);
+  const fabScale = useSharedValue(1);
+  const menuOpacity = useSharedValue(0);
+  const menuScale = useSharedValue(0.7);
+  const item1Opacity = useSharedValue(0);
+  const item1Translate = useSharedValue(20);
+  const item2Opacity = useSharedValue(0);
+  const item2Translate = useSharedValue(20);
 
   useEffect(() => {
     if (menuOpen) {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-      Animated.parallel([
-        Animated.timing(fabRotation, {
-          toValue: 1,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-        Animated.timing(fabScale, {
-          toValue: 1.1,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-        Animated.timing(menuOpacity, {
-          toValue: 1,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-        Animated.timing(menuScale, {
-          toValue: 1,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-      ]).start();
+      fabRotation.value = withTiming(1, { duration: 300 });
+      fabScale.value = withTiming(1.1, { duration: 300 });
+      menuOpacity.value = withTiming(1, { duration: 300 });
+      menuScale.value = withSpring(1, {
+        damping: 12,
+        mass: 1,
+        stiffness: 200,
+      });
 
-      // Cascada de items
       setTimeout(() => {
-        Animated.parallel([
-          Animated.timing(item1Opacity, {
-            toValue: 1,
-            duration: 200,
-            useNativeDriver: true,
-          }),
-          Animated.timing(item1Translate, {
-            toValue: 0,
-            duration: 200,
-            useNativeDriver: true,
-          }),
-        ]).start();
+        item1Opacity.value = withTiming(1, { duration: 200 });
+        item1Translate.value = withSpring(0, {
+          damping: 12,
+          mass: 1,
+          stiffness: 200,
+        });
       }, 100);
 
       setTimeout(() => {
-        Animated.parallel([
-          Animated.timing(item2Opacity, {
-            toValue: 1,
-            duration: 200,
-            useNativeDriver: true,
-          }),
-          Animated.timing(item2Translate, {
-            toValue: 0,
-            duration: 200,
-            useNativeDriver: true,
-          }),
-        ]).start();
+        item2Opacity.value = withTiming(1, { duration: 200 });
+        item2Translate.value = withSpring(0, {
+          damping: 12,
+          mass: 1,
+          stiffness: 200,
+        });
       }, 150);
     } else {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
-      Animated.parallel([
-        Animated.timing(fabRotation, {
-          toValue: 0,
-          duration: 250,
-          useNativeDriver: true,
-        }),
-        Animated.timing(fabScale, {
-          toValue: 1,
-          duration: 250,
-          useNativeDriver: true,
-        }),
-        Animated.timing(menuOpacity, {
-          toValue: 0,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-        Animated.timing(menuScale, {
-          toValue: 0.7,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-        Animated.timing(item1Opacity, {
-          toValue: 0,
-          duration: 150,
-          useNativeDriver: true,
-        }),
-        Animated.timing(item1Translate, {
-          toValue: 20,
-          duration: 150,
-          useNativeDriver: true,
-        }),
-        Animated.timing(item2Opacity, {
-          toValue: 0,
-          duration: 150,
-          useNativeDriver: true,
-        }),
-        Animated.timing(item2Translate, {
-          toValue: 20,
-          duration: 150,
-          useNativeDriver: true,
-        }),
-      ]).start();
+      fabRotation.value = withTiming(0, { duration: 250 });
+      fabScale.value = withTiming(1, { duration: 250 });
+      menuOpacity.value = withTiming(0, { duration: 200 });
+      menuScale.value = withTiming(0.7, { duration: 200 });
+      item1Opacity.value = withTiming(0, { duration: 150 });
+      item1Translate.value = withTiming(20, { duration: 150 });
+      item2Opacity.value = withTiming(0, { duration: 150 });
+      item2Translate.value = withTiming(20, { duration: 150 });
     }
   }, [menuOpen]);
 
@@ -242,16 +190,20 @@ export default function InventoryScreen() {
 
   const renderItem = useCallback(
     ({ item }: { item: GroupedProduct }) => (
-      <InventoryProductCard
-        barcode={item.barcode}
-        name={item.name}
-        brand={item.brand}
-        totalUnits={item.totalUnits}
-        nearestExpiry={item.nearestExpiry}
-        imageUrl={item.imageUrl}
-        isExpired={item.isExpired}
-        onPress={() => handleCardPress(item.barcode)}
-      />
+      <Animated.View
+        layout={LinearTransition.springify()}
+      >
+        <InventoryProductCard
+          barcode={item.barcode}
+          name={item.name}
+          brand={item.brand}
+          totalUnits={item.totalUnits}
+          nearestExpiry={item.nearestExpiry}
+          imageUrl={item.imageUrl}
+          isExpired={item.isExpired}
+          onPress={() => handleCardPress(item.barcode)}
+        />
+      </Animated.View>
     ),
     [handleCardPress],
   );
@@ -292,68 +244,26 @@ export default function InventoryScreen() {
         />
       )}
       <View style={[styles.fabContainer, { bottom: insets.bottom + 76 }]}>
-        <Animated.View
-          style={[
-            styles.fabMenuItems,
-            {
-              opacity: menuOpacity,
-              transform: [{ scale: menuScale }],
-            },
-          ]}
-          pointerEvents={menuOpen ? "auto" : "none"}
-        >
-          <Animated.View
-            style={[
-              styles.fabMenuItem,
-              {
-                opacity: item1Opacity,
-                transform: [{ translateY: item1Translate }],
-              },
-            ]}
-          >
-            <Pressable
-              style={styles.fabMenuItemPressable}
-              onPress={() => {
-                setMenuOpen(false);
-                Haptics.selectionAsync();
-                router.push("/scanner");
-              }}
-            >
-              <SymbolView
-                name={{ ios: "camera.viewfinder", android: "photo_camera" }}
-                size={18}
-                tintColor={Colors.primary}
-              />
-              <Text style={styles.fabMenuItemText}>{t('inventory.scanProduct')}</Text>
-            </Pressable>
-          </Animated.View>
-
-          <Animated.View
-            style={[
-              styles.fabMenuItem,
-              {
-                opacity: item2Opacity,
-                transform: [{ translateY: item2Translate }],
-              },
-            ]}
-          >
-            <Pressable
-              style={styles.fabMenuItemPressable}
-              onPress={() => {
-                setMenuOpen(false);
-                Haptics.selectionAsync();
-                router.push("/scanner");
-              }}
-            >
-              <SymbolView
-                name={{ ios: "pencil.and.list.clipboard", android: "edit" }}
-                size={18}
-                tintColor={Colors.primary}
-              />
-              <Text style={styles.fabMenuItemText}>{t('inventory.addManual')}</Text>
-            </Pressable>
-          </Animated.View>
-        </Animated.View>
+        <MenuItems
+          menuOpacity={menuOpacity}
+          menuScale={menuScale}
+          item1Opacity={item1Opacity}
+          item1Translate={item1Translate}
+          item2Opacity={item2Opacity}
+          item2Translate={item2Translate}
+          menuOpen={menuOpen}
+          onScanPress={() => {
+            setMenuOpen(false);
+            Haptics.selectionAsync();
+            router.push("/scanner");
+          }}
+          onManualPress={() => {
+            setMenuOpen(false);
+            Haptics.selectionAsync();
+            router.push("/scanner");
+          }}
+          t={t}
+        />
 
         <Pressable
           style={styles.fab}
@@ -362,28 +272,115 @@ export default function InventoryScreen() {
             setMenuOpen(!menuOpen);
           }}
         >
-          <Animated.View
-            style={{
-              transform: [
-                {
-                  rotate: fabRotation.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: ["0deg", "45deg"],
-                  }),
-                },
-                { scale: fabScale },
-              ],
-            }}
-          >
-            <SymbolView
-              name={{ ios: "plus", android: "add" }}
-              size={24}
-              tintColor="#fff"
-            />
-          </Animated.View>
+          <FabIcon rotation={fabRotation} scale={fabScale} />
         </Pressable>
       </View>
     </View>
+  );
+}
+
+function FabIcon({
+  rotation,
+  scale,
+}: {
+  rotation: any;
+  scale: any;
+}) {
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [
+      {
+        rotate: `${rotation.value * 45}deg`,
+      },
+      { scale: scale.value },
+    ],
+  }));
+
+  return (
+    <Animated.View style={animatedStyle}>
+      <SymbolView
+        name={{ ios: "plus", android: "add" }}
+        size={24}
+        tintColor="#fff"
+      />
+    </Animated.View>
+  );
+}
+
+function MenuItems({
+  menuOpacity,
+  menuScale,
+  item1Opacity,
+  item1Translate,
+  item2Opacity,
+  item2Translate,
+  menuOpen,
+  onScanPress,
+  onManualPress,
+  t,
+}: {
+  menuOpacity: any;
+  menuScale: any;
+  item1Opacity: any;
+  item1Translate: any;
+  item2Opacity: any;
+  item2Translate: any;
+  menuOpen: boolean;
+  onScanPress: () => void;
+  onManualPress: () => void;
+  t: (key: string) => string;
+}) {
+  const menuAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: menuOpacity.value,
+    transform: [{ scale: menuScale.value }],
+  }));
+
+  const item1AnimatedStyle = useAnimatedStyle(() => ({
+    opacity: item1Opacity.value,
+    transform: [{ translateY: item1Translate.value }],
+  }));
+
+  const item2AnimatedStyle = useAnimatedStyle(() => ({
+    opacity: item2Opacity.value,
+    transform: [{ translateY: item2Translate.value }],
+  }));
+
+  return (
+    <Animated.View
+      style={[styles.fabMenuItems, menuAnimatedStyle]}
+      pointerEvents={menuOpen ? "auto" : "none"}
+    >
+      <Animated.View
+        style={[styles.fabMenuItem, item1AnimatedStyle]}
+      >
+        <Pressable
+          style={styles.fabMenuItemPressable}
+          onPress={onScanPress}
+        >
+          <SymbolView
+            name={{ ios: "camera.viewfinder", android: "photo_camera" }}
+            size={18}
+            tintColor={Colors.primary}
+          />
+          <Text style={styles.fabMenuItemText}>{t('inventory.scanProduct')}</Text>
+        </Pressable>
+      </Animated.View>
+
+      <Animated.View
+        style={[styles.fabMenuItem, item2AnimatedStyle]}
+      >
+        <Pressable
+          style={styles.fabMenuItemPressable}
+          onPress={onManualPress}
+        >
+          <SymbolView
+            name={{ ios: "pencil.and.list.clipboard", android: "edit" }}
+            size={18}
+            tintColor={Colors.primary}
+          />
+          <Text style={styles.fabMenuItemText}>{t('inventory.addManual')}</Text>
+        </Pressable>
+      </Animated.View>
+    </Animated.View>
   );
 }
 

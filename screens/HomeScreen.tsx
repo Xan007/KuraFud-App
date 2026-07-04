@@ -10,6 +10,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+import Animated, { FadeInUp, LinearTransition } from "react-native-reanimated";
 import { SymbolView } from "expo-symbols";
 import { inventoryRepository } from "@/db/repositories";
 import type { InventoryItem } from "@/db/schema";
@@ -73,32 +74,37 @@ export default function HomeScreen() {
 
         {/* Expiring items section */}
         {expiringItems.length > 0 && (
-          <View style={styles.section}>
+          <Animated.View style={styles.section} layout={LinearTransition.springify()}>
             <AppText variant="heading">{t('home.expiringIn7Days')}</AppText>
-            <View style={styles.itemsList}>
-              {expiringItems.map((item) => (
-                <Pressable
+            <Animated.View style={styles.itemsList} layout={LinearTransition.springify()}>
+              {expiringItems.map((item, index) => (
+                <Animated.View
                   key={item.id}
-                  style={styles.expiringCard}
-                  onPress={() => router.push(`/product/${item.productBarcode}`)}
+                  entering={FadeInUp.delay(index * 30).duration(400)}
+                  layout={LinearTransition.springify()}
                 >
-                  <View style={styles.expiringCardBody}>
-                    <AppText variant="subheading" numberOfLines={1}>
-                      {item.productName}
-                    </AppText>
-                    <AppText variant="body" color={Colors.textSecondary}>
-                      {t('home.expiresLabel')} {item.expirationDate}
-                    </AppText>
-                  </View>
-                  <SymbolView
-                    name={{ ios: "chevron.right", android: "chevron_right" }}
-                    size={16}
-                    tintColor={Colors.textSecondary}
-                  />
-                </Pressable>
+                  <Pressable
+                    style={styles.expiringCard}
+                    onPress={() => router.push(`/product/${item.productBarcode}`)}
+                  >
+                    <View style={styles.expiringCardBody}>
+                      <AppText variant="subheading" numberOfLines={1}>
+                        {item.productName}
+                      </AppText>
+                      <AppText variant="body" color={Colors.textSecondary}>
+                        {t('home.expiresLabel')} {item.expirationDate}
+                      </AppText>
+                    </View>
+                    <SymbolView
+                      name={{ ios: "chevron.right", android: "chevron_right" }}
+                      size={16}
+                      tintColor={Colors.textSecondary}
+                    />
+                  </Pressable>
+                </Animated.View>
               ))}
-            </View>
-          </View>
+            </Animated.View>
+          </Animated.View>
         )}
 
         {/* Empty state - only when no items and not loading */}
