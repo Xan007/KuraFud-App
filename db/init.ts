@@ -67,6 +67,18 @@ export function initializeDatabase(): void {
       batch_id integer NOT NULL REFERENCES reminder_batches(id) ON DELETE CASCADE,
       inventory_id integer NOT NULL REFERENCES inventory(id) ON DELETE CASCADE
     );
+
+    -- AI settings: configuration for AI provider, model, and custom instructions (single row, id=1)
+    CREATE TABLE IF NOT EXISTS ai_settings (
+      id integer PRIMARY KEY NOT NULL,
+      provider text DEFAULT '' NOT NULL,
+      model text DEFAULT '' NOT NULL,
+      max_tokens integer,
+      custom_instructions text DEFAULT '' NOT NULL,
+      updated_at integer NOT NULL
+    );
+    INSERT OR IGNORE INTO ai_settings (id, provider, model, max_tokens, custom_instructions, updated_at)
+    VALUES (1, '', '', NULL, '', 0);
   `);
 
   // Migration: add consumed_at column to existing inventory tables (idempotent with try/catch)

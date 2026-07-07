@@ -5,6 +5,7 @@ export {
   notificationSettingsRepository,
 } from "./NotificationSettingsRepository";
 export { ReminderRepository, reminderRepository } from "./ReminderRepository";
+export { AISettingsRepository, aiSettingsRepository } from "./AISettingsRepository";
 
 // Re-export for backwards compatibility
 export { productRepository as default } from "./ProductRepository";

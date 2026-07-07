@@ -55,6 +55,15 @@ export const reminderBatchItems = sqliteTable("reminder_batch_items", {
     .references(() => inventory.id, { onDelete: "cascade" }),
 });
 
+export const aiSettings = sqliteTable("ai_settings", {
+  id: integer("id").primaryKey(),
+  provider: text("provider").notNull().default(""),
+  model: text("model").notNull().default(""),
+  maxTokens: integer("max_tokens"),
+  customInstructions: text("custom_instructions").notNull().default(""),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
 // Type exports for use across the app
 export type Product = typeof products.$inferSelect;
 export type InventoryItem = typeof inventory.$inferSelect;
@@ -62,6 +71,7 @@ export type NotificationSettings = typeof notificationSettings.$inferSelect;
 export type ReminderOffset = typeof reminderOffsets.$inferSelect;
 export type ReminderBatch = typeof reminderBatches.$inferSelect;
 export type ReminderBatchItem = typeof reminderBatchItems.$inferSelect;
+export type AISettings = typeof aiSettings.$inferSelect;
 
 // Inferred type for products with nested inventory items
 export type ProductWithInventory = Product & {
