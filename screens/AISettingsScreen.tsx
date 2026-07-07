@@ -8,11 +8,16 @@ import {
   View,
   ActivityIndicator,
 } from "react-native";
-import Animated, { FadeInDown, FadeOut } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { SymbolView } from "expo-symbols";
 
-import { Colors, FontSize, Spacing, BorderRadius, withOpacity } from "@/constants/theme";
+import {
+  Colors,
+  FontSize,
+  Spacing,
+  BorderRadius,
+  withOpacity,
+} from "@/constants/theme";
 import TopBar from "@/components/TopBar";
 import { AppText } from "@/components/ui/Text";
 import { Button } from "@/components/ui/Button";
@@ -173,7 +178,11 @@ export default function AISettingsScreen() {
       >
         {/* Provider Selection */}
         <View style={styles.section}>
-          <AppText variant="body" color={Colors.textSecondary} style={styles.label}>
+          <AppText
+            variant="body"
+            color={Colors.textSecondary}
+            style={styles.label}
+          >
             Proveedor
           </AppText>
 
@@ -195,11 +204,7 @@ export default function AISettingsScreen() {
           </Pressable>
 
           {showProviderPicker && (
-            <Animated.View
-              entering={FadeInDown.duration(200)}
-              exiting={FadeOut.duration(150)}
-              style={styles.pickerList}
-            >
+            <View style={styles.pickerList}>
               {providers.map((provider) => (
                 <Pressable
                   key={provider.id}
@@ -220,14 +225,18 @@ export default function AISettingsScreen() {
                   </AppText>
                 </Pressable>
               ))}
-            </Animated.View>
+            </View>
           )}
         </View>
 
         {/* Model Selection/Input */}
         {currentProvider && (
           <View style={styles.section}>
-            <AppText variant="body" color={Colors.textSecondary} style={styles.label}>
+            <AppText
+              variant="body"
+              color={Colors.textSecondary}
+              style={styles.label}
+            >
               Modelo
             </AppText>
 
@@ -242,7 +251,11 @@ export default function AISettingsScreen() {
             {/* Suggested Models (if any) */}
             {currentProvider.models.length > 0 && (
               <View style={styles.suggestedModels}>
-                <AppText variant="body" color={Colors.textSecondary} style={{ fontSize: 12 }}>
+                <AppText
+                  variant="body"
+                  color={Colors.textSecondary}
+                  style={{ fontSize: 12 }}
+                >
                   Modelos disponibles:
                 </AppText>
                 <View style={styles.modelChips}>
@@ -257,7 +270,11 @@ export default function AISettingsScreen() {
                     >
                       <AppText
                         variant="body"
-                        color={model === modelOption.id ? Colors.primary : Colors.text}
+                        color={
+                          model === modelOption.id
+                            ? Colors.primary
+                            : Colors.text
+                        }
                         style={{ fontSize: 12 }}
                       >
                         {modelOption.name}
@@ -272,7 +289,11 @@ export default function AISettingsScreen() {
 
         {/* API Key */}
         <View style={styles.section}>
-          <AppText variant="body" color={Colors.textSecondary} style={styles.label}>
+          <AppText
+            variant="body"
+            color={Colors.textSecondary}
+            style={styles.label}
+          >
             Clave API
           </AppText>
           {savedApiKey && !isEditingApiKey ? (
@@ -281,7 +302,11 @@ export default function AISettingsScreen() {
               onPress={() => setIsEditingApiKey(true)}
             >
               <AppText variant="body">{maskApiKey(savedApiKey)}</AppText>
-              <AppText variant="body" color={Colors.primary} style={{ fontSize: 12 }}>
+              <AppText
+                variant="body"
+                color={Colors.primary}
+                style={{ fontSize: 12 }}
+              >
                 Tocar para editar
               </AppText>
             </Pressable>
@@ -349,7 +374,8 @@ export default function AISettingsScreen() {
             color={Colors.textSecondary}
             style={styles.hint}
           >
-            Contexto opcional. Escribe cualquier información que consideres importante para personalizar las respuestas de la IA.
+            Contexto opcional. Escribe cualquier información que consideres
+            importante para personalizar las respuestas de la IA.
           </AppText>
           <TextInput
             style={[styles.input, styles.textarea]}

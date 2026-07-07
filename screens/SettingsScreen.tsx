@@ -1,9 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useFocusEffect, useRouter } from "expo-router";
 import {
   Linking,
@@ -14,11 +9,16 @@ import {
   TextInput,
   View,
 } from "react-native";
-import Animated, { FadeIn, FadeOut, FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { SymbolView } from "expo-symbols";
 
-import { Colors, FontSize, Spacing, BorderRadius, withOpacity } from "@/constants/theme";
+import {
+  Colors,
+  FontSize,
+  Spacing,
+  BorderRadius,
+  withOpacity,
+} from "@/constants/theme";
 import TopBar from "@/components/TopBar";
 import { AppText } from "@/components/ui/Text";
 import { Button } from "@/components/ui/Button";
@@ -88,7 +88,8 @@ export default function SettingsScreen() {
   useEffect(() => {
     const load = async () => {
       try {
-        const settings = await notificationSettingsRepository.getNotificationSettings();
+        const settings =
+          await notificationSettingsRepository.getNotificationSettings();
         setEnabled(settings.enabled);
         setReminderHour(settings.reminderHour);
         setReminderMinute(settings.reminderMinute);
@@ -97,7 +98,13 @@ export default function SettingsScreen() {
         setOffsets(offsetsData);
 
         const perm = await getNotificationPermissionStatus();
-        setPermissionStatus(perm === "granted" ? "granted" : perm === "denied" ? "denied" : "unknown");
+        setPermissionStatus(
+          perm === "granted"
+            ? "granted"
+            : perm === "denied"
+              ? "denied"
+              : "unknown",
+        );
 
         // Load AI settings
         const aiConfig = await aiSettingsRepository.getAISettings();
@@ -126,14 +133,16 @@ export default function SettingsScreen() {
         const granted = await requestNotificationPermission();
         if (!granted) {
           setPermissionStatus("denied");
-          showToast("Permiso de notificaciones denegado");
+          showToast(t("messages.permissionDenied"));
           return;
         }
         setPermissionStatus("granted");
       }
 
       setEnabled(value);
-      await notificationSettingsRepository.saveNotificationSettings({ enabled: value });
+      await notificationSettingsRepository.saveNotificationSettings({
+        enabled: value,
+      });
       if (value) {
         await rebuildAllReminders();
       }
@@ -147,7 +156,10 @@ export default function SettingsScreen() {
       const m = date.getMinutes();
       setReminderHour(h);
       setReminderMinute(m);
-      await notificationSettingsRepository.saveNotificationSettings({ reminderHour: h, reminderMinute: m });
+      await notificationSettingsRepository.saveNotificationSettings({
+        reminderHour: h,
+        reminderMinute: m,
+      });
       if (enabled) {
         await rebuildAllReminders();
       }
@@ -159,7 +171,7 @@ export default function SettingsScreen() {
     async (id: number, newEnabled: boolean) => {
       await reminderRepository.setReminderOffsetEnabled(id, newEnabled);
       setOffsets((prev) =>
-        prev.map((o) => (o.id === id ? { ...o, enabled: newEnabled } : o))
+        prev.map((o) => (o.id === id ? { ...o, enabled: newEnabled } : o)),
       );
       if (enabled) {
         await rebuildAllReminders();
@@ -182,17 +194,19 @@ export default function SettingsScreen() {
   const handleAddQuickOffset = useCallback(
     async (days: number) => {
       if (offsets.some((o) => o.days === days)) {
-        showToast(`Ya existe un recordatorio para ${days} días`);
+        showToast(t("messages.alreadyExists", { days }));
         return;
       }
       try {
         const newOffset = await reminderRepository.addReminderOffset(days);
-        setOffsets((prev) => [...prev, newOffset].sort((a, b) => a.days - b.days));
+        setOffsets((prev) =>
+          [...prev, newOffset].sort((a, b) => a.days - b.days),
+        );
         if (enabled) {
           await rebuildAllReminders();
         }
       } catch (e) {
-        showToast("Error al agregar el recordatorio");
+        showToast(t("messages.errorAddingReminder"));
       }
     },
     [offsets, enabled],
@@ -201,22 +215,24 @@ export default function SettingsScreen() {
   const handleAddCustomOffset = useCallback(async () => {
     const days = parseInt(newOffsetDays, 10);
     if (isNaN(days) || days < 0) {
-      showToast("Ingresa un número válido");
+      showToast(t("messages.invalidNumber"));
       return;
     }
     if (offsets.some((o) => o.days === days)) {
-      showToast(`Ya existe un recordatorio para ${days} días`);
+      showToast(t("messages.alreadyExists", { days }));
       return;
     }
     try {
       const newOffset = await reminderRepository.addReminderOffset(days);
-      setOffsets((prev) => [...prev, newOffset].sort((a, b) => a.days - b.days));
+      setOffsets((prev) =>
+        [...prev, newOffset].sort((a, b) => a.days - b.days),
+      );
       setNewOffsetDays("");
       if (enabled) {
         await rebuildAllReminders();
       }
     } catch (e) {
-      showToast("Error al agregar el recordatorio");
+      showToast(t("messages.errorAddingReminder"));
     }
   }, [newOffsetDays, offsets, enabled]);
 
@@ -225,35 +241,48 @@ export default function SettingsScreen() {
     if (granted) {
       setPermissionStatus("granted");
       setEnabled(true);
-      await notificationSettingsRepository.saveNotificationSettings({ enabled: true });
+      await notificationSettingsRepository.saveNotificationSettings({
+        enabled: true,
+      });
       await rebuildAllReminders();
-      showToast("Permiso concedido");
+      showToast(t("messages.permissionGranted"));
     }
   }, []);
 
   if (loading) {
     return (
       <View style={styles.container}>
-        <TopBar title={t('settings.title')} />
-        <LoadingState message={t('common.loading')} />
+        <TopBar title={t("settings.title")} />
+        <LoadingState message={t("common.loading")} />
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      <TopBar title={t('settings.title')} />
+      <TopBar title={t("settings.title")} />
 
-      <ScrollView style={styles.scrollView} contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 16 }]}>
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: insets.bottom + 16 },
+        ]}
+      >
         {/* Notifications Toggle */}
         <View style={styles.settingItem}>
           <View style={styles.settingInfo}>
-            <AppText variant="subheading">{t('settings.expiryReminders')}</AppText>
+            <AppText variant="subheading">
+              {t("settings.expiryReminders")}
+            </AppText>
           </View>
           <Switch
             value={enabled}
             onValueChange={handleToggleEnabled}
-            trackColor={{ false: Colors.border, true: withOpacity(Colors.primary, 0.3) }}
+            trackColor={{
+              false: Colors.border,
+              true: withOpacity(Colors.primary, 0.3),
+            }}
             thumbColor={enabled ? Colors.primary : Colors.textSecondary}
           />
         </View>
@@ -262,7 +291,7 @@ export default function SettingsScreen() {
         {enabled === false && permissionStatus === "denied" && (
           <View style={styles.errorCard}>
             <AppText variant="body" color={Colors.errorTextStrong}>
-              {t('settings.permissionRequired')}
+              {t("settings.permissionRequired")}
             </AppText>
             <View style={styles.errorButtons}>
               <Button
@@ -270,7 +299,7 @@ export default function SettingsScreen() {
                 size="sm"
                 onPress={handleRequestPermissionAgain}
               >
-                {t('settings.grantPermission')}
+                {t("settings.grantPermission")}
               </Button>
             </View>
           </View>
@@ -282,53 +311,73 @@ export default function SettingsScreen() {
             {/* Time Setting */}
             <View style={styles.settingItem}>
               <View style={styles.settingInfo}>
-                <AppText variant="body">{t('settings.reminderTime')}</AppText>
-                <AppText variant="body" color={Colors.primary} style={{ fontSize: 16, fontWeight: '600' }}>
-                  {String(reminderHour).padStart(2, "0")}:{String(reminderMinute).padStart(2, "0")}
+                <AppText variant="body">{t("settings.reminderTime")}</AppText>
+                <AppText
+                  variant="body"
+                  color={Colors.primary}
+                  style={{ fontSize: 16, fontWeight: "600" }}
+                >
+                  {String(reminderHour).padStart(2, "0")}:
+                  {String(reminderMinute).padStart(2, "0")}
                 </AppText>
               </View>
               <Pressable onPress={() => setShowTimePicker(true)}>
                 <AppText color={Colors.primary} style={{ fontSize: 14 }}>
-                  {t('settings.changeTime')}
+                  {t("settings.changeTime")}
                 </AppText>
               </Pressable>
             </View>
 
             {/* Custom Reminders Collapsible */}
-            <Pressable style={styles.settingItem} onPress={() => setShowOffsets(!showOffsets)}>
+            <Pressable
+              style={styles.settingItem}
+              onPress={() => setShowOffsets(!showOffsets)}
+            >
               <View style={styles.settingInfo}>
-                <AppText variant="subheading">{t('settings.customReminders')}</AppText>
+                <AppText variant="subheading">
+                  {t("settings.customReminders")}
+                </AppText>
                 {offsets.length > 0 && (
                   <AppText variant="body" color={Colors.textSecondary}>
-                    {offsets.length} {offsets.length === 1 ? 'recordatorio' : 'recordatorios'}
+                    {t("settings.reminder", { count: offsets.length })}
                   </AppText>
                 )}
               </View>
               <SymbolView
-                name={{ ios: showOffsets ? "chevron.up" : "chevron.down", android: "expand_more" }}
+                name={{
+                  ios: showOffsets ? "chevron.up" : "chevron.down",
+                  android: "expand_more",
+                }}
                 size={20}
                 tintColor={Colors.textSecondary}
               />
             </Pressable>
 
             {showOffsets && (
-              <Animated.View
-                entering={FadeInDown.duration(300)}
-                exiting={FadeOut.duration(200)}
-                pointerEvents="box-none"
-              >
+              <View>
                 {offsets.length > 0 && (
                   <View style={styles.offsetsList}>
                     {offsets.map((offset) => (
                       <View key={offset.id} style={styles.offsetRow}>
                         <View style={{ flex: 1 }}>
-                          <AppText variant="body">{formatOffsetLabel(offset.days)}</AppText>
+                          <AppText variant="body">
+                            {formatOffsetLabel(offset.days)}
+                          </AppText>
                         </View>
                         <Switch
                           value={offset.enabled}
-                          onValueChange={(value) => handleOffsetToggle(offset.id, value)}
-                          trackColor={{ false: Colors.border, true: withOpacity(Colors.primary, 0.3) }}
-                          thumbColor={offset.enabled ? Colors.primary : Colors.textSecondary}
+                          onValueChange={(value) =>
+                            handleOffsetToggle(offset.id, value)
+                          }
+                          trackColor={{
+                            false: Colors.border,
+                            true: withOpacity(Colors.primary, 0.3),
+                          }}
+                          thumbColor={
+                            offset.enabled
+                              ? Colors.primary
+                              : Colors.textSecondary
+                          }
                         />
                         <Pressable
                           onPress={() => handleDeleteOffset(offset.id)}
@@ -336,7 +385,10 @@ export default function SettingsScreen() {
                           hitSlop={12}
                         >
                           <SymbolView
-                            name={{ ios: "xmark.circle.fill", android: "cancel" }}
+                            name={{
+                              ios: "xmark.circle.fill",
+                              android: "cancel",
+                            }}
                             size={18}
                             tintColor={Colors.error}
                           />
@@ -365,7 +417,7 @@ export default function SettingsScreen() {
                 <View style={styles.customAddRow}>
                   <TextInput
                     style={styles.customInput}
-                    placeholder={t('settings.customDays')}
+                    placeholder={t("settings.customDays")}
                     placeholderTextColor={Colors.textSecondary}
                     value={newOffsetDays}
                     onChangeText={setNewOffsetDays}
@@ -376,10 +428,10 @@ export default function SettingsScreen() {
                     size="sm"
                     onPress={handleAddCustomOffset}
                   >
-                    {t('settings.add')}
+                    {t("settings.add")}
                   </Button>
                 </View>
-              </Animated.View>
+              </View>
             )}
           </>
         )}
@@ -393,27 +445,45 @@ export default function SettingsScreen() {
           onPress={() => router.push("/settings/ai")}
         >
           <View style={styles.settingInfo}>
-            <AppText variant="subheading">Proveedor de IA</AppText>
+            <AppText variant="subheading">{t("aiSettings.title")}</AppText>
             {aiSettings ? (
               <View style={{ gap: Spacing.xs, marginTop: Spacing.xs }}>
-                <AppText variant="body" color={Colors.primary} style={{ fontWeight: "600" }}>
+                <AppText
+                  variant="body"
+                  color={Colors.primary}
+                  style={{ fontWeight: "600" }}
+                >
                   {aiSettings.provider}
                 </AppText>
                 <AppText variant="body" color={Colors.text}>
                   {aiSettings.model}
                 </AppText>
-                <AppText variant="body" color={Colors.textSecondary} style={{ fontSize: 12 }}>
-                  {aiSettings.apiKey ? maskApiKey(aiSettings.apiKey) : "Sin clave"}
+                <AppText
+                  variant="body"
+                  color={Colors.textSecondary}
+                  style={{ fontSize: 12 }}
+                >
+                  {aiSettings.apiKey
+                    ? maskApiKey(aiSettings.apiKey)
+                    : t("settings.noApiKey")}
                 </AppText>
                 {aiSettings.maxTokens && (
-                  <AppText variant="body" color={Colors.textSecondary} style={{ fontSize: 12 }}>
-                    {aiSettings.maxTokens} tokens
+                  <AppText
+                    variant="body"
+                    color={Colors.textSecondary}
+                    style={{ fontSize: 12 }}
+                  >
+                    {t("aiSettings.tokens", { count: aiSettings.maxTokens })}
                   </AppText>
                 )}
               </View>
             ) : (
-              <AppText variant="body" color={Colors.textSecondary} style={{ marginTop: Spacing.xs }}>
-                No configurado
+              <AppText
+                variant="body"
+                color={Colors.textSecondary}
+                style={{ marginTop: Spacing.xs }}
+              >
+                {t("settings.notConfigured")}
               </AppText>
             )}
           </View>
@@ -426,20 +496,24 @@ export default function SettingsScreen() {
 
         {/* Divider */}
         <View style={styles.divider} />
-        <AppText variant="body" color={Colors.textSecondary} style={{ paddingHorizontal: Spacing.lg, marginBottom: Spacing.sm }}>
-          {t('settings.language')}
+        <AppText
+          variant="body"
+          color={Colors.textSecondary}
+          style={{ paddingHorizontal: Spacing.lg, marginBottom: Spacing.sm }}
+        >
+          {t("settings.language")}
         </AppText>
 
         <View style={styles.languageOptionsContainer}>
           <LanguageOption
-            label={t('settings.spanish')}
-            selected={currentLanguage === 'es'}
-            onPress={() => changeLanguage('es')}
+            label={t("settings.spanish")}
+            selected={currentLanguage === "es"}
+            onPress={() => changeLanguage("es")}
           />
           <LanguageOption
-            label={t('settings.english')}
-            selected={currentLanguage === 'en'}
-            onPress={() => changeLanguage('en')}
+            label={t("settings.english")}
+            selected={currentLanguage === "en"}
+            onPress={() => changeLanguage("en")}
           />
         </View>
       </ScrollView>
@@ -456,7 +530,11 @@ export default function SettingsScreen() {
   );
 }
 
-const LanguageOption = ({ label, selected, onPress }: {
+const LanguageOption = ({
+  label,
+  selected,
+  onPress,
+}: {
   label: string;
   selected: boolean;
   onPress: () => void;
@@ -469,13 +547,15 @@ const LanguageOption = ({ label, selected, onPress }: {
       ]}
       onPress={onPress}
     >
-      <View style={[styles.languageRadio, selected && styles.languageRadioSelected]}>
+      <View
+        style={[styles.languageRadio, selected && styles.languageRadioSelected]}
+      >
         {selected && <View style={styles.languageRadioDot} />}
       </View>
       <AppText variant="body">{label}</AppText>
     </Pressable>
   );
-}
+};
 
 const styles = StyleSheet.create({
   container: {

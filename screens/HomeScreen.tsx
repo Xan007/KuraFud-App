@@ -19,7 +19,10 @@ import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { useAppTranslation } from "@/hooks/useAppTranslation";
 
-type ExpiringItem = InventoryItem & { productName: string; productBarcode: string };
+type ExpiringItem = InventoryItem & {
+  productName: string;
+  productBarcode: string;
+};
 
 export default function HomeScreen() {
   const { width, height } = useWindowDimensions();
@@ -32,7 +35,8 @@ export default function HomeScreen() {
     useCallback(() => {
       let mounted = true;
 
-      inventoryRepository.getExpiringItems(7)
+      inventoryRepository
+        .getExpiringItems(7)
         .then((items) => {
           if (mounted) {
             const typed = items.map((item) => ({
@@ -63,22 +67,45 @@ export default function HomeScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Scan button - always visible at top */}
+        {/* Scan buttons - always visible at top */}
         <View style={styles.scanSection}>
-          <Button
-            variant="primary"
-            size="md"
-            onPress={() => router.push("/scanner")}
-          >
-            {t('home.scanProduct')}
-          </Button>
+          <View style={styles.buttonRow}>
+            <Button
+              variant="primary"
+              size="md"
+              onPress={() => router.push("/scanner")}
+              style={{ flex: 1 }}
+            >
+              {t("home.scanProduct")}
+            </Button>
+            <Pressable
+              style={({ pressed }) => [
+                styles.receiptButton,
+                pressed && styles.receiptButtonPressed,
+              ]}
+              onPress={() => router.push("/receipt")}
+            >
+              <SymbolView
+                name={{ ios: "receipt", android: "receipt_long" }}
+                size={18}
+                tintColor={Colors.text}
+              />
+              <AppText variant="button">{t("home.scanReceipt")}</AppText>
+            </Pressable>
+          </View>
         </View>
 
         {/* Expiring items section */}
         {expiringItems.length > 0 && (
-          <Animated.View style={styles.section} layout={LinearTransition.springify()}>
-            <AppText variant="heading">{t('home.expiringIn7Days')}</AppText>
-            <Animated.View style={styles.itemsList} layout={LinearTransition.springify()}>
+          <Animated.View
+            style={styles.section}
+            layout={LinearTransition.springify()}
+          >
+            <AppText variant="heading">{t("home.expiringIn7Days")}</AppText>
+            <Animated.View
+              style={styles.itemsList}
+              layout={LinearTransition.springify()}
+            >
               {expiringItems.map((item, index) => (
                 <Animated.View
                   key={item.id}
@@ -87,14 +114,16 @@ export default function HomeScreen() {
                 >
                   <Pressable
                     style={styles.expiringCard}
-                    onPress={() => router.push(`/product/${item.productBarcode}`)}
+                    onPress={() =>
+                      router.push(`/product/${item.productBarcode}`)
+                    }
                   >
                     <View style={styles.expiringCardBody}>
                       <AppText variant="subheading" numberOfLines={1}>
                         {item.productName}
                       </AppText>
                       <AppText variant="body" color={Colors.textSecondary}>
-                        {t('home.expiresLabel')} {item.expirationDate}
+                        {t("home.expiresLabel")} {item.expirationDate}
                       </AppText>
                     </View>
                     <SymbolView
@@ -119,8 +148,8 @@ export default function HomeScreen() {
                 tintColor={Colors.primary}
               />
             }
-            title={t('home.nothingExpiringSoon')}
-            subtitle={t('home.allProductsGood')}
+            title={t("home.nothingExpiringSoon")}
+            subtitle={t("home.allProductsGood")}
           />
         )}
       </ScrollView>
@@ -142,6 +171,27 @@ const styles = StyleSheet.create({
   scanButton: {
     flexDirection: "row",
     gap: Spacing.sm,
+  },
+  buttonRow: {
+    flexDirection: "row",
+    gap: Spacing.sm,
+  },
+  receiptButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: Spacing.sm,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: BorderRadius.md,
+    borderCurve: "continuous",
+  },
+  receiptButtonPressed: {
+    opacity: 0.7,
   },
   section: {
     paddingHorizontal: Spacing.lg,

@@ -37,7 +37,8 @@
     "expiresLabel": "Vence:",
     "nothingExpiringSoon": "Nada se vence pronto",
     "allProductsGood": "¡Todos tus productos están bien!",
-    "scanProduct": "Escanear producto"
+    "scanProduct": "Escanear producto",
+    "scanReceipt": "Escanear recibo"
   },
   "kitchen": {
     "title": "Cocina",
@@ -68,7 +69,11 @@
     "languageDesc": "Selecciona el idioma de la aplicación",
     "spanish": "Español",
     "english": "English",
-    "autoDetect": "Detectar automáticamente"
+    "autoDetect": "Detectar automáticamente",
+    "noApiKey": "Sin clave",
+    "notConfigured": "No configurado",
+    "reminder_one": "{{count}} recordatorio",
+    "reminder_other": "{{count}} recordatorios"
   },
   "product": {
     "title": "Producto",
@@ -103,11 +108,20 @@
     "errorSaving": "Error al guardar la unidad",
     "errorDeleting": "Error al eliminar la unidad",
     "errorUpdating": "Error al actualizar",
-    "alreadyExists": "Ya existe un recordatorio para",
+    "alreadyExists": "Ya existe un recordatorio para {{days}} días",
     "days": "días",
+    "errorAddingReminder": "Error al agregar el recordatorio",
     "invalidNumber": "Ingresa un número válido",
     "permissionDenied": "Permiso de notificaciones denegado",
     "permissionGranted": "Permiso concedido"
+  },
+  "receiptResults": {
+    "title": "Productos encontrados",
+    "empty": "No se encontraron productos",
+    "emptyHint": "Intenta con una foto más clara del recibo",
+    "quantity": "Cantidad",
+    "back": "Volver",
+    "goHome": "Ir a inicio"
   },
   "aiSettings": {
     "title": "Proveedor de IA",
@@ -128,6 +142,7 @@
     "connectionFailed": "Error de conexión",
     "saving": "Guardando...",
     "noProvider": "Sin proveedor configurado",
-    "configureProvider": "Configura un proveedor de IA para usar esta funcionalidad"
+    "configureProvider": "Configura un proveedor de IA para usar esta funcionalidad",
+    "tokens": "{{count}} tokens"
   }
 }

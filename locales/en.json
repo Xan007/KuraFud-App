@@ -37,7 +37,8 @@
     "expiresLabel": "Expires:",
     "nothingExpiringSoon": "Nothing expiring soon",
     "allProductsGood": "All your products are good!",
-    "scanProduct": "Scan Product"
+    "scanProduct": "Scan Product",
+    "scanReceipt": "Scan Receipt"
   },
   "kitchen": {
     "title": "Kitchen",
@@ -68,7 +69,11 @@
     "languageDesc": "Select the app language",
     "spanish": "Español",
     "english": "English",
-    "autoDetect": "Auto-detect"
+    "autoDetect": "Auto-detect",
+    "noApiKey": "No API key",
+    "notConfigured": "Not configured",
+    "reminder_one": "{{count}} reminder",
+    "reminder_other": "{{count}} reminders"
   },
   "product": {
     "title": "Product",
@@ -103,11 +108,20 @@
     "errorSaving": "Error saving the unit",
     "errorDeleting": "Error deleting the unit",
     "errorUpdating": "Error updating",
-    "alreadyExists": "A reminder already exists for",
+    "alreadyExists": "A reminder already exists for {{days}} days",
     "days": "days",
+    "errorAddingReminder": "Error adding reminder",
     "invalidNumber": "Enter a valid number",
     "permissionDenied": "Notification permission denied",
     "permissionGranted": "Permission granted"
+  },
+  "receiptResults": {
+    "title": "Products Found",
+    "empty": "No products found",
+    "emptyHint": "Try with a clearer receipt photo",
+    "quantity": "Quantity",
+    "back": "Go back",
+    "goHome": "Go home"
   },
   "aiSettings": {
     "title": "AI Provider",
@@ -128,6 +142,7 @@
     "connectionFailed": "Connection failed",
     "saving": "Saving...",
     "noProvider": "No provider configured",
-    "configureProvider": "Configure an AI provider to use this feature"
+    "configureProvider": "Configure an AI provider to use this feature",
+    "tokens": "{{count}} tokens"
   }
 }

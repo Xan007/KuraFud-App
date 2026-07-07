@@ -28,6 +28,10 @@ export class OpenAICompatibleProvider implements AIProvider {
       model: this.config.model,
       messages: [
         {
+          role: "system",
+          content: systemPrompt,
+        },
+        {
           role: "user",
           content: [
             {
@@ -44,10 +48,8 @@ export class OpenAICompatibleProvider implements AIProvider {
           ],
         },
       ],
-      system: systemPrompt,
       max_tokens: this.config.maxTokens || 1024,
       temperature: 0.3,
-      response_format: { type: "json_object" },
     };
 
     try {
@@ -67,11 +69,9 @@ export class OpenAICompatibleProvider implements AIProvider {
           errorData.error?.message || `HTTP ${response.status}`;
 
         if (response.status === 401 || response.status === 403) {
-          throw new AIError(
-            "API key is invalid or expired",
-            "AUTH_ERROR",
-            { status: response.status },
-          );
+          throw new AIError("API key is invalid or expired", "AUTH_ERROR", {
+            status: response.status,
+          });
         }
 
         if (response.status === 404) {
@@ -82,17 +82,16 @@ export class OpenAICompatibleProvider implements AIProvider {
           );
         }
 
-        throw new AIError(errorMessage, "API_ERROR", { status: response.status });
+        throw new AIError(errorMessage, "API_ERROR", {
+          status: response.status,
+        });
       }
 
       const data = (await response.json()) as any;
       const content = data.choices?.[0]?.message?.content;
 
       if (!content) {
-        throw new AIError(
-          "No response content from API",
-          "EMPTY_RESPONSE",
-        );
+        throw new AIError("No response content from API", "EMPTY_RESPONSE");
       }
 
       return parseReceiptResponse(content);

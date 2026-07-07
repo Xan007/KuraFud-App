@@ -29,6 +29,8 @@ export type CameraSectionProps = {
   insets: { top: number; bottom: number };
   hasTorch: boolean;
   onCameraLayout?: (layout: CameraLayout) => void;
+  hideZoom?: boolean;
+  hideFlip?: boolean;
 };
 
 /**
@@ -50,6 +52,8 @@ const CameraSection = memo(function CameraSection({
   insets,
   hasTorch,
   onCameraLayout,
+  hideZoom = false,
+  hideFlip = false,
 }: CameraSectionProps) {
   const rootRef = useRef<View>(null);
   const hasReported = useRef(false);
@@ -75,7 +79,7 @@ const CameraSection = memo(function CameraSection({
         device={device}
         isActive
         enableNativeTapToFocusGesture
-        enableNativeZoomGesture
+        enableNativeZoomGesture={!hideZoom}
         outputs={outputs}
       />
 
@@ -118,48 +122,56 @@ const CameraSection = memo(function CameraSection({
               />
             </View>
           ) : null}
-          <IconButton
-            variant="overlay"
-            size="md"
-            icon={
-              <SymbolView
-                name={{
-                  ios: "arrow.triangle.2.circlepath",
-                  android: "flip_camera_android",
-                }}
-                size={20}
-                tintColor={Colors.white}
-              />
-            }
-            onPress={onToggleCamera}
-          />
+          {!hideFlip && (
+            <IconButton
+              variant="overlay"
+              size="md"
+              icon={
+                <SymbolView
+                  name={{
+                    ios: "arrow.triangle.2.circlepath",
+                    android: "flip_camera_android",
+                  }}
+                  size={20}
+                  tintColor={Colors.white}
+                />
+              }
+              onPress={onToggleCamera}
+            />
+          )}
         </View>
 
-        <View style={styles.zoom}>
-          <IconButton
-            variant="overlay"
-            size="md"
-            icon={
-              <AppText variant="button" color={Colors.white}>
-                +
-              </AppText>
-            }
-            onPress={onZoomIn}
-          />
-          <AppText variant="caption" color={Colors.white} style={styles.zoomLabel}>
-            {zoomLabel}
-          </AppText>
-          <IconButton
-            variant="overlay"
-            size="md"
-            icon={
-              <AppText variant="button" color={Colors.white}>
-                -
-              </AppText>
-            }
-            onPress={onZoomOut}
-          />
-        </View>
+        {!hideZoom && (
+          <View style={styles.zoom}>
+            <IconButton
+              variant="overlay"
+              size="md"
+              icon={
+                <AppText variant="button" color={Colors.white}>
+                  +
+                </AppText>
+              }
+              onPress={onZoomIn}
+            />
+            <AppText
+              variant="caption"
+              color={Colors.white}
+              style={styles.zoomLabel}
+            >
+              {zoomLabel}
+            </AppText>
+            <IconButton
+              variant="overlay"
+              size="md"
+              icon={
+                <AppText variant="button" color={Colors.white}>
+                  -
+                </AppText>
+              }
+              onPress={onZoomOut}
+            />
+          </View>
+        )}
       </View>
     </View>
   );
