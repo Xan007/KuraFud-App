@@ -33,8 +33,8 @@ export type CameraSectionProps = {
 
 /**
  * Full-screen camera view with overlay controls: back button, torch toggle,
- * camera flip, and zoom buttons.  Reports its measured layout back to the
- * parent so date-detection cropping can align with the visible viewport.
+ * camera flip, and zoom buttons. Reports its measured layout back to the
+ * parent to align cropping with the visible viewport.
  */
 const CameraSection = memo(function CameraSection({
   device,

@@ -26,12 +26,12 @@ export default function HomeScreen() {
   const router = useRouter();
   const { t } = useAppTranslation();
   const [expiringItems, setExpiringItems] = useState<ExpiringItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
       let mounted = true;
-      setLoading(true);
+
       inventoryRepository.getExpiringItems(7)
         .then((items) => {
           if (mounted) {
@@ -41,11 +41,13 @@ export default function HomeScreen() {
               productBarcode: item.product.barcode,
             }));
             setExpiringItems(typed);
+            setLoading(false);
           }
         })
-        .finally(() => {
+        .catch(() => {
           if (mounted) setLoading(false);
         });
+
       return () => {
         mounted = false;
       };

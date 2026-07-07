@@ -23,7 +23,6 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { SymbolView } from "expo-symbols";
-import * as Haptics from "expo-haptics";
 import { productRepository, inventoryRepository } from "@/db/repositories";
 import type { ProductWithInventory } from "@/db/schema";
 import { InventoryProductCard } from "@/components/InventoryProductCard";
@@ -102,7 +101,7 @@ export default function InventoryScreen() {
   const router = useRouter();
   const { t } = useAppTranslation();
   const [products, setProducts] = useState<ProductWithInventory[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
   const fabRotation = useSharedValue(0);
@@ -116,8 +115,6 @@ export default function InventoryScreen() {
 
   useEffect(() => {
     if (menuOpen) {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-
       fabRotation.value = withTiming(1, { duration: 300 });
       fabScale.value = withTiming(1.1, { duration: 300 });
       menuOpacity.value = withTiming(1, { duration: 300 });
@@ -145,8 +142,6 @@ export default function InventoryScreen() {
         });
       }, 150);
     } else {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-
       fabRotation.value = withTiming(0, { duration: 250 });
       fabScale.value = withTiming(1, { duration: 250 });
       menuOpacity.value = withTiming(0, { duration: 200 });
@@ -161,13 +156,12 @@ export default function InventoryScreen() {
   useFocusEffect(
     useCallback(() => {
       let mounted = true;
-      setLoading(true);
       productRepository
         .getAllProducts()
         .then((data) => {
           if (mounted) setProducts(data);
         })
-        .finally(() => {
+        .catch(() => {
           if (mounted) setLoading(false);
         });
       return () => {
@@ -254,12 +248,10 @@ export default function InventoryScreen() {
           menuOpen={menuOpen}
           onScanPress={() => {
             setMenuOpen(false);
-            Haptics.selectionAsync();
             router.push("/scanner");
           }}
           onManualPress={() => {
             setMenuOpen(false);
-            Haptics.selectionAsync();
             router.push("/scanner");
           }}
           t={t}
@@ -268,7 +260,6 @@ export default function InventoryScreen() {
         <Pressable
           style={styles.fab}
           onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
             setMenuOpen(!menuOpen);
           }}
         >

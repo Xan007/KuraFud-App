@@ -19,7 +19,7 @@ export async function ensureNotificationChannel(): Promise<void> {
   await Notifications.setNotificationChannelAsync(NOTIFICATION_CHANNEL_ID, {
     name: "Recordatorios de caducidad",
     importance: Notifications.AndroidImportance.DEFAULT,
-    vibrationPattern: [0, 250, 250, 250],
+    vibrationPattern: [0, 100],
     lightColor: "#34A853",
   });
 }

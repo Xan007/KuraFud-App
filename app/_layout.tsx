@@ -6,8 +6,14 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
+import { initExecutorch } from "react-native-executorch";
+import { ExpoResourceFetcher } from "react-native-executorch-expo-resource-fetcher";
 
 import { Colors } from "@/constants/theme";
+
+// Must run before any react-native-executorch hook/module is used anywhere
+// in the app (registers the model download/cache adapter for Expo).
+initExecutorch({ resourceFetcher: ExpoResourceFetcher });
 import { initializeDatabase } from "../db/init";
 import {
   configureNotificationHandler,
@@ -88,31 +94,32 @@ export default function RootLayout() {
   const router = useRouter();
 
   useEffect(() => {
-    initializeI18n().catch(console.error);
-    configureNotificationHandler();
-    ensureNotificationChannel().catch(() => {});
-    cleanupExpiredInventory().catch(() => {});
-    rebuildAllReminders().catch(() => {});
+    let mounted = true;
+
+    const init = async () => {
+      try {
+        initializeDatabase();
+        await initializeI18n();
+        configureNotificationHandler();
+        await ensureNotificationChannel();
+        await cleanupExpiredInventory();
+        await rebuildAllReminders();
+      } catch (e) {
+        console.error("Initialization error:", e);
+      }
+    };
+
+    init();
 
     const unsubscribe = addNotificationTapListener(() => {
-      router.replace("/(tabs)");
+      if (mounted) router.replace("/(tabs)");
     });
 
-    return unsubscribe;
+    return () => {
+      mounted = false;
+      unsubscribe();
+    };
   }, [router]);
-
-  try {
-    initializeDatabase();
-  } catch (e) {
-    return (
-      <View style={styles.initContainer}>
-        <Text style={styles.initError}>Error al iniciar la base de datos</Text>
-        <Text style={styles.initErrorDetail}>
-          {e instanceof Error ? e.message : String(e)}
-        </Text>
-      </View>
-    );
-  }
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -127,9 +134,9 @@ export default function RootLayout() {
                 animationDuration: 250,
               }}
             >
-              <Stack.Screen name="(tabs)" />
-              <Stack.Screen name="scanner" />
-              <Stack.Screen name="product/[barcode]" />
+              <Stack.Screen name="(tabs)" options={{ animationEnabled: false }} />
+              <Stack.Screen name="scanner" options={{ animationEnabled: false }} />
+              <Stack.Screen name="product/[barcode]" options={{ animationEnabled: false }} />
             </Stack>
           </Host>
         </SafeAreaProvider>
