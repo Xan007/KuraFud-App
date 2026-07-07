@@ -4,7 +4,7 @@ import {
   useMemo,
   useState,
 } from "react";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import {
   Linking,
   Pressable,
@@ -29,6 +29,7 @@ import { showToast } from "@/helpers/toast";
 import {
   notificationSettingsRepository,
   reminderRepository,
+  aiSettingsRepository,
 } from "@/db/repositories";
 import {
   requestNotificationPermission,
@@ -39,6 +40,8 @@ import {
 } from "@/services/notifications";
 import { formatDateString } from "@/helpers/format";
 import { useAppTranslation } from "@/hooks/useAppTranslation";
+import { getAPIKey } from "@/services/ai/keychain";
+import { getProviderById } from "@/services/ai/registry";
 
 type NotificationOffset = {
   id: number;
@@ -46,8 +49,16 @@ type NotificationOffset = {
   enabled: boolean;
 };
 
+function maskApiKey(key: string): string {
+  if (key.length <= 8) return key;
+  const start = key.slice(0, 4);
+  const end = key.slice(-4);
+  return `${start}...${end}`;
+}
+
 export default function SettingsScreen() {
   const { t, changeLanguage, currentLanguage } = useAppTranslation();
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const [enabled, setEnabled] = useState(false);
   const [permissionStatus, setPermissionStatus] = useState<
@@ -60,6 +71,12 @@ export default function SettingsScreen() {
   const [newOffsetDays, setNewOffsetDays] = useState("");
   const [loading, setLoading] = useState(true);
   const [showOffsets, setShowOffsets] = useState(false);
+  const [aiSettings, setAiSettings] = useState<{
+    provider: string;
+    model: string;
+    maxTokens: number | null;
+    apiKey: string;
+  } | null>(null);
 
   const pickerDate = useMemo(() => {
     const d = new Date();
@@ -81,6 +98,19 @@ export default function SettingsScreen() {
 
         const perm = await getNotificationPermissionStatus();
         setPermissionStatus(perm === "granted" ? "granted" : perm === "denied" ? "denied" : "unknown");
+
+        // Load AI settings
+        const aiConfig = await aiSettingsRepository.getAISettings();
+        if (aiConfig.provider && aiConfig.model) {
+          const apiKey = await getAPIKey(aiConfig.provider);
+          const provider = getProviderById(aiConfig.provider);
+          setAiSettings({
+            provider: provider?.name || aiConfig.provider,
+            model: aiConfig.model,
+            maxTokens: aiConfig.maxTokens,
+            apiKey: apiKey || "",
+          });
+        }
       } catch (e) {
         console.error("Error cargando ajustes:", e);
       } finally {
@@ -285,6 +315,7 @@ export default function SettingsScreen() {
               <Animated.View
                 entering={FadeInDown.duration(300)}
                 exiting={FadeOut.duration(200)}
+                pointerEvents="box-none"
               >
                 {offsets.length > 0 && (
                   <View style={styles.offsetsList}>
@@ -356,7 +387,45 @@ export default function SettingsScreen() {
         {/* Divider */}
         <View style={styles.divider} />
 
-        {/* Language Section */}
+        {/* AI Settings Section */}
+        <Pressable
+          style={styles.settingItem}
+          onPress={() => router.push("/settings/ai")}
+        >
+          <View style={styles.settingInfo}>
+            <AppText variant="subheading">Proveedor de IA</AppText>
+            {aiSettings ? (
+              <View style={{ gap: Spacing.xs, marginTop: Spacing.xs }}>
+                <AppText variant="body" color={Colors.primary} style={{ fontWeight: "600" }}>
+                  {aiSettings.provider}
+                </AppText>
+                <AppText variant="body" color={Colors.text}>
+                  {aiSettings.model}
+                </AppText>
+                <AppText variant="body" color={Colors.textSecondary} style={{ fontSize: 12 }}>
+                  {aiSettings.apiKey ? maskApiKey(aiSettings.apiKey) : "Sin clave"}
+                </AppText>
+                {aiSettings.maxTokens && (
+                  <AppText variant="body" color={Colors.textSecondary} style={{ fontSize: 12 }}>
+                    {aiSettings.maxTokens} tokens
+                  </AppText>
+                )}
+              </View>
+            ) : (
+              <AppText variant="body" color={Colors.textSecondary} style={{ marginTop: Spacing.xs }}>
+                No configurado
+              </AppText>
+            )}
+          </View>
+          <SymbolView
+            name={{ ios: "chevron.right", android: "chevron_right" }}
+            size={16}
+            tintColor={Colors.textSecondary}
+          />
+        </Pressable>
+
+        {/* Divider */}
+        <View style={styles.divider} />
         <AppText variant="body" color={Colors.textSecondary} style={{ paddingHorizontal: Spacing.lg, marginBottom: Spacing.sm }}>
           {t('settings.language')}
         </AppText>
@@ -451,6 +520,7 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
     backgroundColor: withOpacity(Colors.primary, 0.05),
     marginVertical: Spacing.sm,
+    marginHorizontal: 0,
     borderRadius: BorderRadius.md,
     borderCurve: "continuous",
   },
@@ -462,14 +532,16 @@ const styles = StyleSheet.create({
     gap: Spacing.md,
   },
   quickAddSection: {
-    paddingHorizontal: Spacing.lg,
+    paddingHorizontal: 0,
     paddingVertical: Spacing.md,
+    paddingTop: Spacing.md,
     gap: Spacing.sm,
   },
   chipRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
   },
   customAddRow: {
     flexDirection: "row",

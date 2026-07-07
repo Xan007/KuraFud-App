@@ -108,5 +108,26 @@
     "invalidNumber": "Enter a valid number",
     "permissionDenied": "Notification permission denied",
     "permissionGranted": "Permission granted"
+  },
+  "aiSettings": {
+    "title": "AI Provider",
+    "provider": "Provider",
+    "model": "Model",
+    "apiKey": "API Key",
+    "apiKeyPlaceholder": "Enter your API key",
+    "maxTokens": "Max tokens (optional)",
+    "testConnection": "Test Connection",
+    "customInstructions": "Custom AI Instructions",
+    "customInstructionsPlaceholder": "Write any important context to customize AI responses...",
+    "customInstructionsHint": "Optional context. Write any information you consider important to customize AI responses.",
+    "selectModel": "Select a model",
+    "enterModel": "Enter the model ID",
+    "selectProvider": "Select a provider",
+    "testingConnection": "Testing connection...",
+    "connectionSuccess": "Connection successful!",
+    "connectionFailed": "Connection failed",
+    "saving": "Saving...",
+    "noProvider": "No provider configured",
+    "configureProvider": "Configure an AI provider to use this feature"
   }
 }

@@ -108,5 +108,26 @@
     "invalidNumber": "Ingresa un número válido",
     "permissionDenied": "Permiso de notificaciones denegado",
     "permissionGranted": "Permiso concedido"
+  },
+  "aiSettings": {
+    "title": "Proveedor de IA",
+    "provider": "Proveedor",
+    "model": "Modelo",
+    "apiKey": "Clave API",
+    "apiKeyPlaceholder": "Ingresa tu clave API",
+    "maxTokens": "Máximo de tokens (opcional)",
+    "testConnection": "Probar conexión",
+    "customInstructions": "Instrucciones de IA personalizadas",
+    "customInstructionsPlaceholder": "Escribe cualquier contexto importante para personalizar las respuestas de la IA...",
+    "customInstructionsHint": "Contexto opcional. Escribe cualquier información que consideres importante para personalizar las respuestas de la IA.",
+    "selectModel": "Selecciona el modelo",
+    "enterModel": "Ingresa el ID del modelo",
+    "selectProvider": "Selecciona un proveedor",
+    "testingConnection": "Probando conexión...",
+    "connectionSuccess": "¡Conexión exitosa!",
+    "connectionFailed": "Error de conexión",
+    "saving": "Guardando...",
+    "noProvider": "Sin proveedor configurado",
+    "configureProvider": "Configura un proveedor de IA para usar esta funcionalidad"
   }
 }
