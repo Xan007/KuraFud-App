@@ -28,16 +28,17 @@ export function DateTimePickerSheet({
 }: DateTimePickerSheetProps) {
   if (!visible) return null;
 
-  // Android uses native picker modal, no custom sheet wrapper needed
+  // Android uses native picker dialog
   if (Platform.OS === "android") {
     return (
       <DateTimePicker
         value={value}
         mode={mode}
-        display="default"
+        display="spinner"
         onChange={(event, selectedDate) => {
           if (event.type === "set" && selectedDate) {
             onChange(selectedDate);
+            onConfirm();
           }
           if (event.type === "dismissed") {
             onCancel();

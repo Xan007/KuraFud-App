@@ -130,6 +130,7 @@ export default function RootLayout() {
             >
               <Stack.Screen name="(tabs)" options={{ animationEnabled: false }} />
               <Stack.Screen name="scanner" options={{ animationEnabled: false }} />
+              <Stack.Screen name="add-product" options={{ animationEnabled: false }} />
               <Stack.Screen name="product/[barcode]" options={{ animationEnabled: false }} />
             </Stack>
           </Host>

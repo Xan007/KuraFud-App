@@ -101,6 +101,22 @@ export default function HomeScreen() {
               <AppText variant="button">{t("home.scanReceipt")}</AppText>
             </Pressable>
           </View>
+          <Pressable
+            style={({ pressed }) => [
+              styles.manualAddButton,
+              pressed && { opacity: 0.7 },
+            ]}
+            onPress={() => router.push("/add-product")}
+          >
+            <SymbolView
+              name={{ ios: "plus.circle", android: "add_circle" }}
+              size={18}
+              tintColor={Colors.primary}
+            />
+            <AppText variant="button" color={Colors.primary}>
+              Añadir manualmente
+            </AppText>
+          </Pressable>
         </View>
 
         {/* Expiring items section */}
@@ -200,6 +216,19 @@ const styles = StyleSheet.create({
   },
   receiptButtonPressed: {
     opacity: 0.7,
+  },
+  manualAddButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: Spacing.sm,
+    paddingVertical: Spacing.md,
+    marginTop: Spacing.sm,
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.md,
+    borderCurve: "continuous",
+    borderWidth: 1,
+    borderColor: Colors.primary + "30",
   },
   section: {
     paddingHorizontal: Spacing.lg,
