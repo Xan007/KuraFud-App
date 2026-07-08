@@ -8,6 +8,13 @@
       "when": 1783465823845,
       "tag": "0000_lovely_warpath",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1783544479068,
+      "tag": "0001_vengeful_boom_boom",
+      "breakpoints": true
     }
   ]
 }

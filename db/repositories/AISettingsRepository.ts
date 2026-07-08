@@ -14,6 +14,7 @@ export class AISettingsRepository {
         provider: "",
         model: "",
         maxTokens: null,
+        customApiUrl: "",
         customInstructions: "",
         updatedAt: new Date(),
       }

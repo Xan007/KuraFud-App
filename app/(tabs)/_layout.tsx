@@ -1,5 +1,5 @@
 import { NativeTabs } from "expo-router/unstable-native-tabs";
-import { Colors, withOpacity } from "@/constants/theme";
+import { Colors } from "@/constants/theme";
 import { useAppTranslation } from "@/hooks/useAppTranslation";
 
 export default function TabsLayout() {
@@ -24,8 +24,8 @@ export default function TabsLayout() {
           fontWeight: "600",
         },
       }}
-      indicatorColor={withOpacity(Colors.primary, 0.1)}
-      rippleColor={withOpacity(Colors.surface, 0.3)}
+      indicatorColor="transparent"
+      rippleColor="transparent"
       {...({
         contentStyle: {
           paddingVertical: 8,

@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "expo-router";
 import {
+  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
   TextInput,
   View,
-  ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { SymbolView } from "expo-symbols";
@@ -28,15 +28,10 @@ import { getAPIKey, setAPIKey, deleteAPIKey } from "@/services/ai/keychain";
 import { getAllProviders, getProviderById } from "@/services/ai/registry";
 import { createAIClient } from "@/services/ai/createAIClient";
 import type { AIProviderDescriptor } from "@/services/ai/types";
-
-function maskApiKey(key: string): string {
-  if (key.length <= 8) return key;
-  const start = key.slice(0, 4);
-  const end = key.slice(-4);
-  return `${start}...${end}`;
-}
+import { useAppTranslation } from "@/hooks/useAppTranslation";
 
 export default function AISettingsScreen() {
+  const { t } = useAppTranslation();
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
@@ -47,9 +42,10 @@ export default function AISettingsScreen() {
   const [providerId, setProviderId] = useState("");
   const [model, setModel] = useState("");
   const [apiKey, setApiKey] = useState("");
-  const [savedApiKey, setSavedApiKey] = useState(""); // Clave guardada anteriormente
-  const [isEditingApiKey, setIsEditingApiKey] = useState(false);
+  const [savedApiKey, setSavedApiKey] = useState("");
   const [maxTokens, setMaxTokens] = useState("");
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [customApiUrl, setCustomApiUrl] = useState("");
   const [customInstructions, setCustomInstructions] = useState("");
   const [showProviderPicker, setShowProviderPicker] = useState(false);
 
@@ -59,7 +55,6 @@ export default function AISettingsScreen() {
     [providerId],
   );
 
-  // Load settings on mount
   useEffect(() => {
     const load = async () => {
       try {
@@ -67,13 +62,13 @@ export default function AISettingsScreen() {
         setProviderId(settings.provider);
         setModel(settings.model);
         setMaxTokens(settings.maxTokens?.toString() || "");
+        setCustomApiUrl(settings.customApiUrl || "");
         setCustomInstructions(settings.customInstructions);
 
         if (settings.provider) {
           const key = await getAPIKey(settings.provider);
           if (key) {
             setSavedApiKey(key);
-            setApiKey(key);
           }
         }
       } catch (e) {
@@ -99,6 +94,7 @@ export default function AISettingsScreen() {
         model,
         apiKey,
         maxTokens: maxTokens ? parseInt(maxTokens, 10) : undefined,
+        customApiUrl,
       });
 
       const result = await client.testConnection();
@@ -123,16 +119,13 @@ export default function AISettingsScreen() {
 
     setSaving(true);
     try {
-      // Save API key to keychain
-      await setAPIKey(providerId, apiKey);
-      setSavedApiKey(apiKey);
-      setIsEditingApiKey(false);
+      await setAPIKey(providerId, apiKey || savedApiKey);
 
-      // Save settings to SQLite
       await aiSettingsRepository.saveAISettings({
         provider: providerId,
         model,
         maxTokens: maxTokens ? parseInt(maxTokens, 10) : null,
+        customApiUrl,
         customInstructions,
       });
 
@@ -152,63 +145,74 @@ export default function AISettingsScreen() {
     setProviderId("");
     setModel("");
     setApiKey("");
+    setSavedApiKey("");
     setMaxTokens("");
+    setCustomApiUrl("");
     setCustomInstructions("");
   }, [providerId]);
 
   if (loading) {
     return (
       <View style={styles.container}>
-        <TopBar title="Proveedor de IA" />
-        <LoadingState message="Cargando..." />
+        <TopBar title={t("aiSettings.title")} showBack onBack={() => router.back()} />
+        <LoadingState message={t("common.loading")} />
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      <TopBar title="Proveedor de IA" />
+      <TopBar
+        title={t("aiSettings.title")}
+        showBack
+        onBack={() => router.back()}
+      />
 
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={[
           styles.scrollContent,
-          { paddingBottom: insets.bottom + 16 },
+          { paddingBottom: insets.bottom + 32 },
         ]}
       >
-        {/* Provider Selection */}
+        {/* ─── PROVEEDOR ─── */}
         <View style={styles.section}>
-          <AppText
-            variant="body"
-            color={Colors.textSecondary}
-            style={styles.label}
-          >
-            Proveedor
+          <AppText variant="label" color={Colors.textSecondary} style={styles.sectionTitle}>
+            {t("aiSettings.provider")}
           </AppText>
 
           <Pressable
-            style={styles.dropdown}
+            style={({ pressed }) => [
+              styles.selectorRow,
+              pressed && styles.rowPressed,
+            ]}
             onPress={() => setShowProviderPicker(!showProviderPicker)}
           >
-            <AppText variant="body">
-              {currentProvider?.name || "Selecciona un proveedor"}
+            <AppText
+              variant="body"
+              color={currentProvider ? Colors.text : Colors.textSecondary}
+            >
+              {currentProvider?.name || t("aiSettings.selectProvider")}
             </AppText>
             <SymbolView
               name={{
                 ios: showProviderPicker ? "chevron.up" : "chevron.down",
                 android: "expand_more",
               }}
-              size={20}
+              size={16}
               tintColor={Colors.textSecondary}
             />
           </Pressable>
 
           {showProviderPicker && (
             <View style={styles.pickerList}>
-              {providers.map((provider) => (
+              {providers.map((provider, index) => (
                 <Pressable
                   key={provider.id}
-                  style={styles.pickerItem}
+                  style={[
+                    styles.pickerItem,
+                    index === providers.length - 1 && styles.pickerItemLast,
+                  ]}
                   onPress={() => {
                     setProviderId(provider.id);
                     setModel("");
@@ -223,41 +227,36 @@ export default function AISettingsScreen() {
                   >
                     {provider.name}
                   </AppText>
+                  {providerId === provider.id && (
+                    <SymbolView
+                      name={{ ios: "checkmark", android: "check" }}
+                      size={16}
+                      tintColor={Colors.primary}
+                    />
+                  )}
                 </Pressable>
               ))}
             </View>
           )}
         </View>
 
-        {/* Model Selection/Input */}
+        {/* ─── MODELO ─── */}
         {currentProvider && (
           <View style={styles.section}>
-            <AppText
-              variant="body"
-              color={Colors.textSecondary}
-              style={styles.label}
-            >
-              Modelo
+            <AppText variant="label" color={Colors.textSecondary} style={styles.sectionTitle}>
+              {t("aiSettings.model")}
             </AppText>
 
             <TextInput
               style={styles.input}
-              placeholder="Ingresa el ID del modelo"
+              placeholder={t("aiSettings.enterModel")}
               placeholderTextColor={Colors.textSecondary}
               value={model}
               onChangeText={setModel}
             />
 
-            {/* Suggested Models (if any) */}
             {currentProvider.models.length > 0 && (
-              <View style={styles.suggestedModels}>
-                <AppText
-                  variant="body"
-                  color={Colors.textSecondary}
-                  style={{ fontSize: 12 }}
-                >
-                  Modelos disponibles:
-                </AppText>
+              <View style={styles.modelSection}>
                 <View style={styles.modelChips}>
                   {currentProvider.models.map((modelOption) => (
                     <Pressable
@@ -269,13 +268,12 @@ export default function AISettingsScreen() {
                       onPress={() => setModel(modelOption.id)}
                     >
                       <AppText
-                        variant="body"
+                        variant="caption"
                         color={
                           model === modelOption.id
                             ? Colors.primary
-                            : Colors.text
+                            : Colors.textSecondary
                         }
-                        style={{ fontSize: 12 }}
                       >
                         {modelOption.name}
                       </AppText>
@@ -287,53 +285,47 @@ export default function AISettingsScreen() {
           </View>
         )}
 
-        {/* API Key */}
+        {/* ─── CLAVE API ─── */}
         <View style={styles.section}>
-          <AppText
-            variant="body"
-            color={Colors.textSecondary}
-            style={styles.label}
-          >
-            Clave API
+          <AppText variant="label" color={Colors.textSecondary} style={styles.sectionTitle}>
+            {t("aiSettings.apiKey")}
           </AppText>
-          {savedApiKey && !isEditingApiKey ? (
-            <Pressable
-              style={styles.dropdown}
-              onPress={() => setIsEditingApiKey(true)}
-            >
-              <AppText variant="body">{maskApiKey(savedApiKey)}</AppText>
-              <AppText
-                variant="body"
-                color={Colors.primary}
-                style={{ fontSize: 12 }}
-              >
-                Tocar para editar
-              </AppText>
-            </Pressable>
-          ) : (
+
+          <View style={styles.passwordRow}>
             <TextInput
-              style={styles.input}
-              placeholder="Ingresa tu clave API"
+              style={styles.passwordInput}
+              placeholder={t("aiSettings.apiKeyPlaceholder")}
               placeholderTextColor={Colors.textSecondary}
               value={apiKey}
               onChangeText={setApiKey}
-              secureTextEntry
+              secureTextEntry={!showApiKey}
               editable={!saving && !testing}
             />
-          )}
+            <Pressable
+              onPress={() => setShowApiKey((v) => !v)}
+              hitSlop={8}
+              style={styles.eyeButton}
+            >
+              <SymbolView
+                name={{
+                  ios: showApiKey ? "eye" : "eye.slash",
+                  android: showApiKey ? "visibility" : "visibility_off",
+                }}
+                size={20}
+                tintColor={Colors.textSecondary}
+              />
+            </Pressable>
+          </View>
         </View>
 
-        {/* Max Tokens (conditional) */}
+        {/* ─── TOKENS ─── */}
         {currentProvider &&
           currentProvider.models.some((m) => m.supportsMaxTokens) && (
             <View style={styles.section}>
-              <AppText
-                variant="body"
-                color={Colors.textSecondary}
-                style={styles.label}
-              >
-                Máximo de tokens (opcional)
+              <AppText variant="label" color={Colors.textSecondary} style={styles.sectionTitle}>
+                {t("aiSettings.maxTokens")}
               </AppText>
+
               <TextInput
                 style={styles.input}
                 placeholder="1024"
@@ -346,40 +338,61 @@ export default function AISettingsScreen() {
             </View>
           )}
 
-        {/* Test Connection Button */}
-        <View style={styles.section}>
-          <Button
-            variant="outline"
-            size="md"
-            onPress={handleTestConnection}
-            disabled={!providerId || !model || !apiKey || testing || saving}
-          >
-            {testing ? "Probando conexión..." : "Probar conexión"}
-          </Button>
-          {testing && (
-            <ActivityIndicator
-              color={Colors.primary}
-              style={{ marginTop: Spacing.sm }}
-            />
-          )}
-        </View>
+        {/* ─── CUSTOM API URL ─── */}
+        {currentProvider?.id === "custom" && (
+          <View style={styles.section}>
+            <AppText variant="label" color={Colors.textSecondary} style={styles.sectionTitle}>
+              Base API URL
+            </AppText>
 
-        {/* Custom Instructions */}
+            <TextInput
+              style={styles.input}
+              placeholder="https://tu-api.com/v1"
+              placeholderTextColor={Colors.textSecondary}
+              value={customApiUrl}
+              onChangeText={setCustomApiUrl}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="url"
+              editable={!saving && !testing}
+            />
+          </View>
+        )}
+
+        {/* ─── TEST CONNECTION ─── */}
+        <Button
+          variant="outline"
+          size="md"
+          onPress={handleTestConnection}
+          disabled={!providerId || !model || !apiKey || testing || saving}
+          style={styles.testButton}
+        >
+          {testing ? t("aiSettings.testingConnection") : t("aiSettings.testConnection")}
+        </Button>
+        {testing && (
+          <ActivityIndicator
+            color={Colors.primary}
+            style={{ marginTop: Spacing.sm }}
+          />
+        )}
+
+        {/* ─── INSTRUCCIONES ─── */}
         <View style={styles.section}>
-          <AppText variant="subheading" style={styles.label}>
-            Instrucciones de IA personalizadas
+          <AppText variant="label" color={Colors.textSecondary} style={styles.sectionTitle}>
+            {t("aiSettings.customInstructions")}
           </AppText>
+
           <AppText
-            variant="body"
+            variant="caption"
             color={Colors.textSecondary}
-            style={styles.hint}
+            style={{ marginBottom: Spacing.sm, paddingHorizontal: Spacing.xs }}
           >
-            Contexto opcional. Escribe cualquier información que consideres
-            importante para personalizar las respuestas de la IA.
+            {t("aiSettings.customInstructionsHint")}
           </AppText>
+
           <TextInput
             style={[styles.input, styles.textarea]}
-            placeholder="Escribe cualquier contexto importante..."
+            placeholder={t("aiSettings.customInstructionsPlaceholder")}
             placeholderTextColor={Colors.textSecondary}
             value={customInstructions}
             onChangeText={setCustomInstructions}
@@ -389,7 +402,7 @@ export default function AISettingsScreen() {
           />
         </View>
 
-        {/* Action Buttons */}
+        {/* ─── ACTION BUTTONS ─── */}
         <View style={styles.buttonRow}>
           <Button
             variant="secondary"
@@ -398,7 +411,7 @@ export default function AISettingsScreen() {
             disabled={saving || testing}
             style={{ flex: 1 }}
           >
-            Cancelar
+            {t("common.cancel")}
           </Button>
           <Button
             variant="primary"
@@ -407,7 +420,7 @@ export default function AISettingsScreen() {
             disabled={!providerId || !model || !apiKey || saving || testing}
             style={{ flex: 1 }}
           >
-            {saving ? "Guardando..." : "Guardar"}
+            {saving ? t("aiSettings.saving") : t("common.save")}
           </Button>
         </View>
 
@@ -417,11 +430,11 @@ export default function AISettingsScreen() {
             disabled={saving || testing}
             style={({ pressed }) => [
               styles.clearButton,
-              pressed && { opacity: 0.7 },
+              pressed && { opacity: 0.6 },
             ]}
           >
             <AppText color={Colors.error} variant="body">
-              Limpiar configuración
+              {t("aiSettings.noProvider")}
             </AppText>
           </Pressable>
         )}
@@ -439,42 +452,44 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingVertical: Spacing.lg,
-    paddingHorizontal: Spacing.lg,
-    gap: Spacing.lg,
+    paddingVertical: Spacing.xl,
+    paddingHorizontal: Spacing.xl,
   },
   section: {
-    gap: Spacing.sm,
+    marginBottom: Spacing.xl,
   },
-  label: {
-    fontSize: FontSize.sm,
-    fontWeight: "600",
+  sectionTitle: {
+    marginBottom: Spacing.md,
+    paddingHorizontal: Spacing.xs,
+    fontWeight: "700",
   },
-  hint: {
-    fontSize: FontSize.sm,
-  },
-  dropdown: {
+  selectorRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.md,
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: BorderRadius.md,
-    borderCurve: "continuous",
+    paddingVertical: Spacing.md + 2,
+    paddingHorizontal: Spacing.xs,
+  },
+  displayRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: Spacing.md + 2,
+    paddingHorizontal: Spacing.xs,
+  },
+  rowPressed: {
+    opacity: 0.6,
   },
   input: {
-    paddingVertical: Spacing.md,
+    paddingVertical: Spacing.sm + 2,
     paddingHorizontal: Spacing.md,
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.border,
     borderRadius: BorderRadius.md,
     borderCurve: "continuous",
     fontSize: FontSize.md,
     color: Colors.text,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
   textarea: {
     minHeight: 100,
@@ -482,48 +497,77 @@ const styles = StyleSheet.create({
     paddingTop: Spacing.md,
   },
   pickerList: {
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    marginTop: Spacing.xs,
+    marginHorizontal: Spacing.xs,
     borderRadius: BorderRadius.md,
     borderCurve: "continuous",
-    marginTop: -Spacing.sm,
     overflow: "hidden",
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
   pickerItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingVertical: Spacing.md,
     paddingHorizontal: Spacing.md,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
   },
+  pickerItemLast: {
+    borderBottomWidth: 0,
+  },
   buttonRow: {
     flexDirection: "row",
     gap: Spacing.md,
+    marginTop: Spacing.sm,
   },
   clearButton: {
-    paddingVertical: Spacing.md,
+    paddingVertical: Spacing.lg,
     alignItems: "center",
   },
-  suggestedModels: {
+  passwordRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: BorderRadius.md,
+    borderCurve: "continuous",
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.surface,
+  },
+  passwordInput: {
+    flex: 1,
+    paddingVertical: Spacing.sm + 2,
+    paddingHorizontal: Spacing.md,
+    fontSize: FontSize.md,
+    color: Colors.text,
+  },
+  eyeButton: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+  },
+  testButton: {
+    marginBottom: Spacing.xl,
+  },
+  modelSection: {
     marginTop: Spacing.sm,
-    gap: Spacing.xs,
   },
   modelChips: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: Spacing.xs,
+    paddingHorizontal: Spacing.xs,
   },
   modelChip: {
-    paddingVertical: Spacing.xs,
-    paddingHorizontal: Spacing.sm,
-    backgroundColor: Colors.surface,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.pill,
+    borderCurve: "continuous",
     borderWidth: 1,
     borderColor: Colors.border,
-    borderRadius: BorderRadius.sm,
-    borderCurve: "continuous",
   },
   modelChipSelected: {
-    backgroundColor: withOpacity(Colors.primary, 0.1),
     borderColor: Colors.primary,
+    backgroundColor: withOpacity(Colors.primary, 0.08),
   },
 });

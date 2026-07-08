@@ -55,6 +55,7 @@ const tables = [
     provider text DEFAULT '' NOT NULL,
     model text DEFAULT '' NOT NULL,
     max_tokens integer,
+    custom_api_url text DEFAULT '' NOT NULL,
     custom_instructions text DEFAULT '' NOT NULL,
     updated_at integer NOT NULL
   )`,
@@ -74,7 +75,12 @@ for (const sql of tables) {
 
 sqliteDb.execSync(`INSERT OR IGNORE INTO notification_settings (id, enabled, reminder_hour, reminder_minute) VALUES (1, 0, 6, 0)`);
 sqliteDb.execSync(`INSERT OR IGNORE INTO reminder_offsets (id, days, enabled) VALUES (1, 0, 1), (2, 3, 1)`);
-sqliteDb.execSync(`INSERT OR IGNORE INTO ai_settings (id, provider, model, max_tokens, custom_instructions, updated_at) VALUES (1, '', '', NULL, '', 0)`);
+try {
+  sqliteDb.execSync(
+    `ALTER TABLE ai_settings ADD COLUMN custom_api_url text DEFAULT '' NOT NULL`,
+  );
+} catch (_) {}
+sqliteDb.execSync(`INSERT OR IGNORE INTO ai_settings (id, provider, model, max_tokens, custom_instructions, custom_api_url, updated_at) VALUES (1, '', '', NULL, '', '', 0)`);
 
 export const database = drizzle(sqliteDb, {
   schema: { ...schema, ...relations },

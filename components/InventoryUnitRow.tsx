@@ -7,6 +7,7 @@ import type { InventoryItem } from "@/db/schema";
 
 // Helper to parse DD/MM/YYYY to Date (UTC)
 function parseDateString(dateStr: string): Date {
+  if (!dateStr) return new Date(8640000000000000);
   const [day, month, year] = dateStr.split("/").map(Number);
   return new Date(Date.UTC(year, month - 1, day));
 }
@@ -66,7 +67,7 @@ export const InventoryUnitRow = memo(function InventoryUnitRow({
         </View>
         <View style={styles.dateInfo}>
           <AppText variant="subheading" style={{ fontFamily: "monospace" }}>
-            {item.expirationDate}
+            {item.expirationDate || "--/--/----"}
           </AppText>
           {item.notes && (
             <AppText variant="caption" color={Colors.textSecondary} numberOfLines={1}>

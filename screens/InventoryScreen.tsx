@@ -41,11 +41,13 @@ type GroupedProduct = {
 };
 
 function parseDate(dateStr: string): Date {
+  if (!dateStr) return new Date(8640000000000000);
   const [day, month, year] = dateStr.split("/").map(Number);
   return new Date(Date.UTC(year, month - 1, day));
 }
 
 function isExpired(dateStr: string): boolean {
+  if (!dateStr) return false;
   const expDate = parseDate(dateStr);
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);

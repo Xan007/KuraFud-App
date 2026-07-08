@@ -32,11 +32,13 @@ import { formatDateString, parseDateString } from "@/helpers/format";
 import { rebuildAllReminders } from "@/services/notifications";
 
 function parseDateString2(dateStr: string): Date {
+  if (!dateStr) return new Date(8640000000000000);
   const [day, month, year] = dateStr.split("/").map(Number);
   return new Date(Date.UTC(year, month - 1, day));
 }
 
 function isExpired(dateStr: string): boolean {
+  if (!dateStr) return false;
   const expDate = parseDateString2(dateStr);
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
@@ -123,7 +125,7 @@ export default function InventoryDetailsScreen() {
   };
 
   const handleEditDate = (item: InventoryWithProduct) => {
-    setPickerDate(parseDateString(item.expirationDate));
+    setPickerDate(item.expirationDate ? parseDateString(item.expirationDate) : new Date());
     setEditingItemId(item.id);
     setShowDatePicker(true);
   };
@@ -361,7 +363,7 @@ export default function InventoryDetailsScreen() {
                 />
               </View>
               <View style={styles.dateInfo}>
-                <Text style={styles.dateText}>{item.expirationDate}</Text>
+                <Text style={styles.dateText}>{item.expirationDate || "--/--/----"}</Text>
                 {item.notes && (
                   <Text style={styles.dateNotes} numberOfLines={1}>
                     {item.notes}
@@ -465,7 +467,7 @@ const styles = StyleSheet.create({
   productImage: {
     width: "100%",
     height: "100%",
-    resizeMode: "cover",
+    contentFit: "cover",
   },
   imagePlaceholder: {
     width: "100%",

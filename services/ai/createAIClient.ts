@@ -10,6 +10,7 @@ interface AIClientConfig {
   model: string;
   apiKey: string;
   maxTokens?: number;
+  customApiUrl?: string;
 }
 
 export function createAIClient(config: AIClientConfig): AIProvider {
@@ -30,7 +31,7 @@ export function createAIClient(config: AIClientConfig): AIProvider {
 
   switch (providerDescriptor.adapter) {
     case "openai-compatible": {
-      const baseUrl = getBaseUrl(config.providerId);
+      const baseUrl = getBaseUrl(config.providerId, config.customApiUrl);
       return new OpenAICompatibleProvider({
         apiKey: config.apiKey,
         baseUrl,
@@ -63,7 +64,7 @@ export function createAIClient(config: AIClientConfig): AIProvider {
   }
 }
 
-function getBaseUrl(providerId: string): string {
+function getBaseUrl(providerId: string, customUrl?: string): string {
   const baseUrls: Record<string, string> = {
     openai: "https://api.openai.com/v1",
     xai: "https://api.x.ai/v1",
@@ -74,20 +75,13 @@ function getBaseUrl(providerId: string): string {
     fireworks: "https://api.fireworks.ai/inference/v1",
     deepinfra: "https://api.deepinfra.com/v1/openai",
     mistral: "https://api.mistral.ai/v1",
-    custom: "",
+    custom: customUrl || "",
   };
 
   const url = baseUrls[providerId];
   if (!url) {
     throw new AIError(
       `No base URL found for provider: ${providerId}`,
-      "CONFIG_ERROR",
-    );
-  }
-
-  if (providerId === "custom" && !url) {
-    throw new AIError(
-      "Custom provider requires base URL in settings",
       "CONFIG_ERROR",
     );
   }

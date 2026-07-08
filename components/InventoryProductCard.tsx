@@ -77,7 +77,7 @@ export const InventoryProductCard = memo(function InventoryProductCard({
             color={isExpired ? Colors.error : Colors.textSecondary}
             style={isExpired && { fontWeight: "600" }}
           >
-            {nearestExpiry}
+            {nearestExpiry || "--/--/----"}
           </AppText>
           {isExpired && (
             <AppText variant="caption" color={Colors.error}>

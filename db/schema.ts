@@ -61,6 +61,7 @@ export const aiSettings = sqliteTable("ai_settings", {
   provider: text("provider").notNull().default(""),
   model: text("model").notNull().default(""),
   maxTokens: integer("max_tokens"),
+  customApiUrl: text("custom_api_url").notNull().default(""),
   customInstructions: text("custom_instructions").notNull().default(""),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 });

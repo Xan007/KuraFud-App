@@ -37,7 +37,7 @@ const DatePreviewSheet = memo(function DatePreviewSheet({
           <Image
             source={{ uri: photoPath }}
             style={styles.photo}
-            resizeMode="contain"
+            contentFit="contain"
           />
         </View>
       ) : null}
