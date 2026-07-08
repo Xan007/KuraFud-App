@@ -9,6 +9,7 @@ export const products = sqliteTable("products", {
   imageFrontUrl: text("image_front_url").notNull().default(""),
   categories: text("categories").notNull().default(""),
   nutriscore: text("nutriscore").notNull().default(""),
+  dataJson: text("data_json"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
@@ -64,6 +65,15 @@ export const aiSettings = sqliteTable("ai_settings", {
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 });
 
+export const scanSession = sqliteTable("scan_session", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  barcode: text("barcode").notNull(),
+  productJson: text("product_json"),
+  date: text("date"),
+  datePhotoUri: text("date_photo_uri"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
 // Type exports for use across the app
 export type Product = typeof products.$inferSelect;
 export type InventoryItem = typeof inventory.$inferSelect;
@@ -72,6 +82,7 @@ export type ReminderOffset = typeof reminderOffsets.$inferSelect;
 export type ReminderBatch = typeof reminderBatches.$inferSelect;
 export type ReminderBatchItem = typeof reminderBatchItems.$inferSelect;
 export type AISettings = typeof aiSettings.$inferSelect;
+export type ScanSessionItem = typeof scanSession.$inferSelect;
 
 // Inferred type for products with nested inventory items
 export type ProductWithInventory = Product & {

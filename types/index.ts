@@ -1,16 +1,13 @@
-/** Available screen identifiers for manual navigation. */
 export enum Screen {
   Home = "Home",
   BarcodeScanner = "BarcodeScanner",
 }
 
-/** Serializable navigation state used by the navigation store. */
 export type NavigationState = {
   screen: Screen;
   params?: Record<string, unknown>;
 };
 
-/** Nutritional values per 100 g of product.  `null` means the data is unavailable. */
 export type Nutriments = {
   energyKcal100g: number | null;
   energyKj100g: number | null;
@@ -26,7 +23,6 @@ export type Nutriments = {
   sodium100g: number | null;
 };
 
-/** Product data returned by the Open Food Facts API. */
 export type ProductInfo = {
   barcode: string;
   name: string;
@@ -49,7 +45,6 @@ export type ProductInfo = {
   servingsPerContainer: string | null;
 };
 
-/** Default / empty product used before data is loaded. */
 export const emptyProduct: ProductInfo = {
   barcode: "",
   name: "",

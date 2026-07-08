@@ -32,7 +32,6 @@ type Props = {
   servingQuantity: number | null;
 };
 
-/** Renders a full nutrition facts table based on per-100g data. */
 export default function NutritionTable({
   nutriments: n,
   servingSize,

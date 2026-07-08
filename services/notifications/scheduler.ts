@@ -19,7 +19,6 @@ export async function computeTriggerDate(
   const triggerDate = new Date(expDate);
   triggerDate.setUTCDate(triggerDate.getUTCDate() - offsetDays);
 
-  // Convert local time to UTC by creating a date with the local time, then extracting UTC components
   const localDate = new Date();
   localDate.setHours(hour, minute, 0, 0);
   triggerDate.setUTCHours(localDate.getUTCHours(), localDate.getUTCMinutes(), 0, 0);
@@ -99,9 +98,7 @@ export async function rebuildAllReminders(): Promise<void> {
     for (const batch of existingBatches) {
       try {
         await Notifications.cancelScheduledNotificationAsync(batch.notificationId);
-      } catch {
-        // Notificación ya despachada o cancelada, ignorar
-      }
+      } catch { }
     }
     await reminderRepository.deleteAllReminderBatches();
 

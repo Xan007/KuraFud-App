@@ -8,7 +8,6 @@ import {
 import type { ReminderOffset, ReminderBatch } from "../schema";
 
 export class ReminderRepository {
-  // Offsets
   async getReminderOffsets(): Promise<ReminderOffset[]> {
     return database.query.reminderOffsets.findMany({
       orderBy: (t) => [asc(t.days)],
@@ -37,7 +36,6 @@ export class ReminderRepository {
     await database.delete(reminderOffsets).where(eq(reminderOffsets.id, id));
   }
 
-  // Batches
   async getAllReminderBatches(): Promise<ReminderBatch[]> {
     return database.query.reminderBatches.findMany({
       orderBy: (t) => [asc(t.scheduledFor)],

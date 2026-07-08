@@ -1,9 +1,5 @@
 import TextRecognition from "@react-native-ml-kit/text-recognition";
 
-/* -------------------------------------------------------------------------- */
-/*  Helpers                                                                    */
-/* -------------------------------------------------------------------------- */
-
 function normalize(value: string, length: 2 | 4): string {
   return value.padStart(length, "0");
 }
@@ -16,11 +12,6 @@ function formatDate(day: string, month: string, year: string): string {
   return `${normalize(day, 2)}/${normalize(month, 2)}/${year}`;
 }
 
-/* -------------------------------------------------------------------------- */
-/*  Regex-based date extraction                                                */
-/* -------------------------------------------------------------------------- */
-
-/** Attempts to find a date in numeric formats inside `text`. */
 export function tryRegex(text: string): string | null {
   const withSep = /\b(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})\b/;
   let m = text.match(withSep);
@@ -48,10 +39,6 @@ export function tryRegex(text: string): string | null {
 
   return null;
 }
-
-/* -------------------------------------------------------------------------- */
-/*  Spanish month names                                                        */
-/* -------------------------------------------------------------------------- */
 
 const SPANISH_MONTHS: Record<string, number> = {
   ENERO: 1,
@@ -84,7 +71,6 @@ function getLastDayOfMonth(month: number, year: number): number {
   return new Date(year, month, 0).getDate();
 }
 
-/** Looks for dates written in Spanish (e.g. "27 DIC 2026", "DICIEMBRE 2026"). */
 export function trySpanishDate(text: string): string | null {
   const sorted = Object.keys(SPANISH_MONTHS).sort(
     (a, b) => b.length - a.length,
@@ -117,29 +103,10 @@ export function trySpanishDate(text: string): string | null {
   return formatDate(String(lastDay), String(month), year);
 }
 
-/**
- * Runs both detectors over a block of recognized text and returns the first
- * date found in `DD/MM/YYYY` format, or `null`.
- *
- * This is the single entry-point the OCR pipeline uses on ML Kit output.
- */
 export function detectDate(text: string): string | null {
   return tryRegex(text) || trySpanishDate(text);
 }
 
-/* -------------------------------------------------------------------------- */
-/*  MLKit + Regex pipeline (100% offline)                                      */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Detects an expiration date from a photo file, fully offline.
- *
- * Pipeline: **MLKit** extracts text → **regex** searches for numeric / Spanish
- * dates.  No network, no cloud fallback.
- *
- * @param photoPath - Absolute file path (may include `file://` prefix).
- * @returns The date in `DD/MM/YYYY` format, or `null` if nothing was detected.
- */
 export async function detectDateFromPhoto(
   photoPath: string,
 ): Promise<string | null> {

@@ -38,7 +38,8 @@
     "nothingExpiringSoon": "Nada se vence pronto",
     "allProductsGood": "¡Todos tus productos están bien!",
     "scanProduct": "Escanear producto",
-    "scanReceipt": "Escanear recibo"
+    "scanReceipt": "Escanear recibo",
+    "aiNotConfigured": "Configura un proveedor de IA en Ajustes para usar esta función"
   },
   "kitchen": {
     "title": "Cocina",
@@ -96,7 +97,12 @@
     "goBack": "Volver",
     "dateFarInFuture": "Fecha muy lejana ({{year}}). Verifica que sea correcta.",
     "searchingDate": "Buscando la fecha automáticamente…",
-    "confirmingDate": "Confirmando {{date}}…"
+    "confirmingDate": "Confirmando {{date}}…",
+    "missingDates": "Faltan fechas: toca un producto en la lista para ingresarla",
+    "cancelSessionTitle": "Cancelar escaneo",
+    "cancelSessionBody": "Se perderán {{count}} productos escaneados.",
+    "continueScanning": "Seguir escaneando",
+    "cancelAll": "Cancelar todo"
   },
   "messages": {
     "productDeleted": "Producto eliminado",

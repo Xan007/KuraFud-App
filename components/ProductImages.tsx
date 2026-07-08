@@ -30,7 +30,6 @@ function Dot({ index, progress }: DotProps) {
 
 type Props = { images: string[] };
 
-/** Animated image carousel with pagination dots and a page counter. */
 export default function ProductImages({ images }: Props) {
   const { width: screenWidth } = useWindowDimensions();
   const progress = useSharedValue(0);

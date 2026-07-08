@@ -10,26 +10,14 @@ export type CameraLayout = {
 export type GuideRect = { x: number; y: number; width: number; height: number };
 
 export type RoiInput = {
-  /** Captured photo pixel dimensions. */
   photoW: number;
   photoH: number;
-  /** On-screen camera viewport (measured in window coords). */
   camLayout: CameraLayout;
-  /** On-screen guide box (measured in window coords). */
   guide: GuideRect;
-  /** Extra margin around the guide, as a fraction of its size (default 0.2). */
   expand?: number;
 };
 
-/**
- * Maps the on-screen date-guide box to a crop rectangle in **photo pixel**
- * space, accounting for the camera preview's `cover` scaling/overflow.
- *
- * Extracted verbatim from the previous manual `handleTakePhoto` cropping so the
- * automatic pipeline frames the exact same region the user sees.
- *
- * Returns `undefined` when inputs are degenerate (caller should OCR full frame).
- */
+// Maps on-screen guide box to photo-pixel crop, accounting for `cover` scaling.
 export function computeRoiRect(input: RoiInput): Rect | undefined {
   const { photoW, photoH, camLayout, guide, expand = 0.2 } = input;
 

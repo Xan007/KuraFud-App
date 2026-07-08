@@ -2,6 +2,8 @@ import { eq, isNull } from "drizzle-orm";
 import { database } from "../client";
 import { products, inventory } from "../schema";
 import type { Product, ProductWithInventory } from "../schema";
+import type { ProductInfo } from "types";
+import { emptyProduct } from "types";
 
 export class ProductRepository {
   async getProduct(barcode: string) {
@@ -13,6 +15,37 @@ export class ProductRepository {
         },
       },
     });
+  }
+
+  async getProductInfo(barcode: string): Promise<ProductInfo | null> {
+    const row = await database
+      .select()
+      .from(products)
+      .where(eq(products.barcode, barcode))
+      .limit(1)
+      .then((rows) => rows[0] ?? null);
+
+    if (!row) return null;
+
+    if (row.dataJson) {
+      try {
+        return JSON.parse(row.dataJson) as ProductInfo;
+      } catch {
+        // Fall through to basic construction
+      }
+    }
+
+    return {
+      ...emptyProduct,
+      barcode: row.barcode,
+      name: row.name,
+      brand: row.brand,
+      quantity: row.quantity,
+      ingredients: row.ingredients,
+      imageFrontUrl: row.imageFrontUrl,
+      categories: row.categories,
+      nutriscore: row.nutriscore,
+    };
   }
 
   async getAllProducts(): Promise<ProductWithInventory[]> {

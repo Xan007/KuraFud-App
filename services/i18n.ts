@@ -17,7 +17,6 @@ const getDeviceLanguage = (): string => {
   return languageCode === "es" ? "es" : "en";
 };
 
-// Initialize i18n synchronously with a default language
 if (!i18n.isInitialized) {
   i18n.use(initReactI18next).init({
     resources,
@@ -33,8 +32,6 @@ if (!i18n.isInitialized) {
   });
 }
 
-// Always merge latest resources so new keys (e.g. added at build time) are
-// picked up even when i18n was already initialised with a cached bundle.
 i18n.addResourceBundle("es", "translation", es, true, true);
 i18n.addResourceBundle("en", "translation", en, true, true);
 

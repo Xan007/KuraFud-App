@@ -6,14 +6,8 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { initExecutorch } from "react-native-executorch";
-import { ExpoResourceFetcher } from "react-native-executorch-expo-resource-fetcher";
 
 import { Colors } from "@/constants/theme";
-
-// Must run before any react-native-executorch hook/module is used anywhere
-// in the app (registers the model download/cache adapter for Expo).
-initExecutorch({ resourceFetcher: ExpoResourceFetcher });
 import { initializeDatabase } from "../db/init";
 import {
   configureNotificationHandler,

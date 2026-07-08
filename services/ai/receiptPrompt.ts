@@ -54,7 +54,6 @@ ${customInstructions}`;
 export function parseReceiptResponse(rawText: string): ReceiptItem[] {
   const cleaned = rawText.trim();
 
-  // Remove markdown code blocks if present
   let jsonText = cleaned;
   if (cleaned.startsWith("```json")) {
     jsonText = cleaned.replace(/^```json\s*/, "").replace(/\s*```$/, "");
@@ -73,9 +72,6 @@ export function parseReceiptResponse(rawText: string): ReceiptItem[] {
     });
   }
 
-  // Some providers (e.g. OpenAI/Groq with response_format json_object) can only
-  // return a top-level object, never a bare array — so the array is nested
-  // under "items". Accept a bare array too, for providers without that constraint.
   let list: unknown;
   if (Array.isArray(parsed)) {
     list = parsed;

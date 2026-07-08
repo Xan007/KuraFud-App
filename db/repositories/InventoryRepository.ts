@@ -3,7 +3,6 @@ import { database } from "../client";
 import { inventory } from "../schema";
 import type { InventoryItem } from "../schema";
 
-// Helper to parse DD/MM/YYYY to Date (UTC)
 function parseDateString(dateStr: string): Date {
   const [day, month, year] = dateStr.split("/").map(Number);
   return new Date(Date.UTC(year, month - 1, day));
@@ -33,8 +32,7 @@ export class InventoryRepository {
     const future = new Date();
     future.setDate(future.getDate() + days);
 
-    // Get all active (not consumed) items, then filter by date in JS
-    // (SQL string comparison of DD/MM/YYYY doesn't work correctly across month/year boundaries)
+    // SQL string comparison of DD/MM/YYYY doesn't work across month/year boundaries
     const allActive = await database.query.inventory.findMany({
       where: isNull(inventory.consumedAt),
       with: { product: true },
@@ -47,14 +45,12 @@ export class InventoryRepository {
   }
 
   async getAllInventoryItems() {
-    // Only return active (not consumed) items for notifications
     return database.query.inventory.findMany({
       where: isNull(inventory.consumedAt),
       with: { product: true },
     });
   }
 
-  // Mark an item as consumed (user ate/threw it away)
   async markAsConsumed(id: number): Promise<void> {
     await database
       .update(inventory)
@@ -62,7 +58,6 @@ export class InventoryRepository {
       .where(eq(inventory.id, id));
   }
 
-  // Undo consume action
   async undoConsumed(id: number): Promise<void> {
     await database
       .update(inventory)
@@ -70,7 +65,6 @@ export class InventoryRepository {
       .where(eq(inventory.id, id));
   }
 
-  // Auto-delete inventory items that are expired (past date) and beyond grace period
   async deleteExpiredInventory(graceDays: number): Promise<number> {
     const allActive = await database.query.inventory.findMany({
       where: isNull(inventory.consumedAt),

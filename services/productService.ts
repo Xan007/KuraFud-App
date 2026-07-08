@@ -1,15 +1,21 @@
 import type { ProductInfo } from "types";
-
-const BASE_URL = "https://world.openfoodfacts.org/api/v0/product";
+import { productRepository } from "@/db/repositories";
+import { OpenFoodFactsAdapter } from "@/services/adapters/openFoodFacts";
 
 const productCache = new Map<string, ProductInfo>();
+const apiAdapter = new OpenFoodFactsAdapter();
 
 /**
- * Looks up a product by its barcode on Open Food Facts.
+ * Looks up a product by its barcode.
  *
- * Tries multiple barcode variants (UPC-A → EAN-13 with leading zero and
- * vice-versa) to maximise the chance of a match.  Results are cached in
- * memory to avoid repeated network requests for the same code.
+ * Priority order (fastest first):
+ *   1. In-memory Map (session-scoped, zero I/O)
+ *   2. SQLite `dataJson` (persists between sessions)
+ *   3. Open Food Facts API via adapter (network)
+ *
+ * When the API returns a result, it is saved to both the in-memory cache AND
+ * persisted to SQLite (main columns + `dataJson`) so future lookups
+ * (even after app restart) are instant without a network call.
  *
  * @param barcode - The scanned barcode string.
  * @returns The parsed `ProductInfo`, or `null` when the product is not found.
@@ -17,80 +23,56 @@ const productCache = new Map<string, ProductInfo>();
 export async function lookupProduct(
   barcode: string,
 ): Promise<ProductInfo | null> {
-  const variants = [barcode];
+  // 1. In-memory cache (session-scoped, zero I/O)
+  const cached = productCache.get(barcode);
+  if (cached) return cached;
 
+  const variants = [barcode];
   if (/^\d{12}$/.test(barcode)) variants.push(`0${barcode}`);
   if (/^0\d{12}$/.test(barcode)) variants.push(barcode.slice(1));
 
-  const tried = new Set<string>();
-
-  for (const code of variants) {
-    if (tried.has(code)) continue;
-    tried.add(code);
-
-    try {
-      const res = await fetch(`${BASE_URL}/${code}.json`);
-      const data = await res.json();
-
-      if (data.status === 1 && data.product) {
-        const parsed = parseProduct(data, code);
-        productCache.set(code, parsed);
-        productCache.set(barcode, parsed);
-        return parsed;
-      }
-    } catch {
-      /* try the next variant */
+  for (const v of variants) {
+    const hit = productCache.get(v);
+    if (hit) {
+      productCache.set(barcode, hit);
+      return hit;
     }
   }
 
-  return null;
-}
-
-function parseProduct(data: any, barcode: string): ProductInfo {
-  const p = data.product;
-  const n = p.nutriments || {};
-
-  const imageFrontUrl = p.image_front_url || p.image_front_small_url || "";
-  const imageBackUrl = p.image_back_url || "";
-  const imagePackagingUrl = p.image_packaging_url || "";
-  const imageNutritionUrl = p.image_nutrition_url || "";
-  const imageIngredientsUrl = p.image_ingredients_url || "";
-  const servingQty = p.serving_quantity ? Number(p.serving_quantity) : null;
-
-  let servingsPerContainer: string | null = null;
-  if (p.no_servings || p.servings_per_container) {
-    servingsPerContainer = String(p.no_servings || p.servings_per_container);
+  // 2. SQLite via getProductInfo (reads dataJson)
+  for (const v of [barcode, ...variants]) {
+    const fromDb = await productRepository.getProductInfo(v);
+    if (fromDb) {
+      productCache.set(v, fromDb);
+      productCache.set(barcode, fromDb);
+      return fromDb;
+    }
   }
 
-  return {
-    barcode: data.code || barcode,
-    name: p.product_name || p.generic_name || "Producto sin nombre",
-    brand: p.brands || "",
-    quantity: p.quantity || "",
-    ingredients: p.ingredients_text || "",
-    imageFrontUrl,
-    imageBackUrl,
-    imagePackagingUrl,
-    imageNutritionUrl,
-    imageIngredientsUrl,
-    categories: p.categories || "",
-    nutriscore: p.nutriscore_grade || "",
-    servingSize: p.serving_size || "",
-    servingQuantity: servingQty && servingQty > 0 ? servingQty : null,
-    servingsPerContainer,
-    nutriments: {
-      energyKcal100g: n["energy-kcal_100g"] ?? null,
-      energyKj100g: n["energy-kj_100g"] ?? null,
-      fat100g: n.fat_100g ?? null,
-      saturatedFat100g: n["saturated-fat_100g"] ?? null,
-      transFat100g: n["trans-fat_100g"] ?? null,
-      carbohydrates100g: n.carbohydrates_100g ?? null,
-      sugars100g: n.sugars_100g ?? null,
-      addedSugars100g: n["added-sugars_100g"] ?? null,
-      fiber100g: n.fiber_100g ?? null,
-      proteins100g: n.proteins_100g ?? null,
-      salt100g: n.salt_100g ?? null,
-      sodium100g: n.sodium_100g ?? null,
-    },
-  };
+  // 3. Open Food Facts API via adapter (network)
+  const parsed = await apiAdapter.lookup(barcode);
+  if (!parsed) return null;
+
+  productCache.set(parsed.barcode, parsed);
+  productCache.set(barcode, parsed);
+
+  // Persist to SQLite (main columns + dataJson) for future sessions
+  try {
+    await productRepository.upsertProduct({
+      barcode: parsed.barcode,
+      name: parsed.name,
+      brand: parsed.brand,
+      quantity: parsed.quantity,
+      ingredients: parsed.ingredients,
+      imageFrontUrl: parsed.imageFrontUrl,
+      categories: parsed.categories,
+      nutriscore: parsed.nutriscore,
+      dataJson: JSON.stringify(parsed),
+      createdAt: new Date(),
+    });
+  } catch {
+    // Non-critical: don't block the response
+  }
+
+  return parsed;
 }

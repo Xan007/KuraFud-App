@@ -3,8 +3,6 @@ import { StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Colors, BorderRadius } from "@/constants/theme";
 import { AppText } from "./ui/Text";
-import { IconButton } from "./ui/IconButton";
-import { SymbolView } from "expo-symbols";
 
 type GuideLayout = {
   x: number;
@@ -14,11 +12,7 @@ type GuideLayout = {
 };
 
 type Props = {
-  onCancel: () => void;
   onLayoutGuide?: (layout: GuideLayout) => void;
-  /** Manual shutter handler. When omitted, the overlay runs in auto mode. */
-  onTakePhoto?: () => void;
-  /** Live status line shown under the guide while auto-scanning. */
   statusText?: string;
 };
 
@@ -26,13 +20,15 @@ const GUIDES = 60;
 const CORNER = 24;
 
 /**
- * Semi-transparent overlay shown when scanning an expiration date.
- * It draws a rectangular cut-out guide and provides a shutter / cancel
- * button row at the bottom.
+ * Non-blocking overlay shown when auto-scanning an expiration date.
+ * Paints corner guide brackets (used for ROI cropping) and a floating
+ * status pill.  Does NOT block barcode scanning — pointerEvents="none"
+ * on the entire overlay.
+ *
+ * The corner-guide onLayout is still required: it feeds computeRoiRect
+ * so the OCR pipeline can crop to the date area for better accuracy.
  */
 const DateScannerOverlay = memo(function DateScannerOverlay({
-  onTakePhoto,
-  onCancel,
   onLayoutGuide,
   statusText,
 }: Props) {
@@ -55,83 +51,27 @@ const DateScannerOverlay = memo(function DateScannerOverlay({
   return (
     <View
       style={[StyleSheet.absoluteFill, styles.overlay]}
-      pointerEvents="box-none"
+      pointerEvents="none"
     >
-      <View style={StyleSheet.absoluteFill} pointerEvents="none">
-        <View style={[styles.maskTop, { paddingTop: insets.top + 12 }]}>
-          <AppText variant="heading" color={Colors.white}>
-            Escanea la fecha de vencimiento
-          </AppText>
-        </View>
-
-        <View style={styles.guideRow}>
-          <View style={styles.maskSide} />
-          <View
-            ref={guideBoxRef}
-            style={styles.guideBox}
-            onLayout={handleGuideLayout}
-          >
-            <View style={styles.guideCornerTL} />
-            <View style={styles.guideCornerTR} />
-            <View style={styles.guideCornerBL} />
-            <View style={styles.guideCornerBR} />
-          </View>
-          <View style={styles.maskSide} />
-        </View>
-
-        <View style={styles.maskBottom}>
-          <AppText
-            variant="body"
-            color={Colors.overlayLight}
-            style={styles.hint}
-          >
-            {onTakePhoto
-              ? "Apunta a la fecha de vencimiento del producto"
-              : statusText ?? "Buscando la fecha automáticamente…"}
-          </AppText>
-        </View>
+      {/* Floating status pill near the top */}
+      <View style={[styles.statusPill, { top: insets.top + 12 }]}>
+        <AppText variant="caption" color={Colors.white}>
+          {statusText ?? "Buscando la fecha automáticamente…"}
+        </AppText>
       </View>
 
-      <View style={[styles.bottomBtns, { paddingBottom: insets.bottom + 24 }]}>
-        {onTakePhoto ? (
-          <>
-            <View style={styles.cancelBtn}>
-              <IconButton
-                variant="overlay"
-                size="sm"
-                icon={
-                  <AppText variant="button" color={Colors.white}>
-                    Cancelar
-                  </AppText>
-                }
-                onPress={onCancel}
-              />
-            </View>
-
-            <View
-              style={styles.photoBtn}
-            >
-              <View style={styles.photoBtnOuter}>
-                <View style={styles.photoBtnInner} />
-              </View>
-            </View>
-
-            <View style={styles.spacer} />
-          </>
-        ) : (
-          <View style={styles.cancelBtn}>
-            <IconButton
-              variant="overlay"
-              size="sm"
-              icon={
-                <AppText variant="button" color={Colors.white}>
-                  Cancelar
-                </AppText>
-              }
-              onPress={onCancel}
-            />
-          </View>
-        )}
+      {/* Corner guide box centered vertically */}
+      <View style={styles.guideRow}>
+        <View
+          ref={guideBoxRef}
+          style={styles.guideBox}
+          onLayout={handleGuideLayout}
+        >
+          <View style={styles.guideCornerTL} />
+          <View style={styles.guideCornerTR} />
+          <View style={styles.guideCornerBL} />
+          <View style={styles.guideCornerBR} />
+        </View>
       </View>
     </View>
   );
@@ -144,19 +84,16 @@ const styles = StyleSheet.create({
     zIndex: 100,
     elevation: 10,
   },
-  maskTop: {
-    flex: 1,
-    backgroundColor: Colors.overlay,
+  statusPill: {
+    position: "absolute",
+    left: 32,
+    right: 32,
     alignItems: "center",
-    justifyContent: "center",
   },
   guideRow: {
-    flexDirection: "row",
-    height: GUIDES * 2,
-  },
-  maskSide: {
     flex: 1,
-    backgroundColor: Colors.overlay,
+    justifyContent: "center",
+    alignItems: "center",
   },
   guideBox: {
     width: GUIDES * 4,
@@ -206,62 +143,5 @@ const styles = StyleSheet.create({
     borderRightWidth: 3,
     borderColor: Colors.white,
     borderBottomRightRadius: BorderRadius.sm,
-  },
-  maskBottom: {
-    flex: 1,
-    backgroundColor: Colors.overlay,
-    alignItems: "center",
-    paddingTop: 20,
-    paddingHorizontal: 32,
-  },
-  hint: {
-    textAlign: "center",
-    lineHeight: 22,
-  },
-  bottomBtns: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 20,
-    paddingHorizontal: 32,
-  },
-  cancelBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.15)",
-  },
-  photoBtn: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: Colors.overlayLight,
-  },
-  photoBtnOuter: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: Colors.white,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  photoBtnInner: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: Colors.white,
-    borderWidth: 3,
-    borderColor: "#ddd",
-  },
-  spacer: {
-    width: 72 + 24,
   },
 });

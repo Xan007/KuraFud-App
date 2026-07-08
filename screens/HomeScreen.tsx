@@ -12,12 +12,13 @@ import {
 } from "react-native";
 import Animated, { FadeInUp, LinearTransition } from "react-native-reanimated";
 import { SymbolView } from "expo-symbols";
-import { inventoryRepository } from "@/db/repositories";
+import { inventoryRepository, aiSettingsRepository } from "@/db/repositories";
 import type { InventoryItem } from "@/db/schema";
 import { AppText } from "@/components/ui/Text";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { useAppTranslation } from "@/hooks/useAppTranslation";
+import { showToast } from "@/helpers/toast";
 
 type ExpiringItem = InventoryItem & {
   productName: string;
@@ -83,7 +84,14 @@ export default function HomeScreen() {
                 styles.receiptButton,
                 pressed && styles.receiptButtonPressed,
               ]}
-              onPress={() => router.push("/receipt")}
+              onPress={async () => {
+                const settings = await aiSettingsRepository.getAISettings();
+                if (!settings.provider || !settings.model) {
+                  showToast(t("home.aiNotConfigured"));
+                  return;
+                }
+                router.push("/receipt");
+              }}
             >
               <SymbolView
                 name={{ ios: "receipt", android: "receipt_long" }}

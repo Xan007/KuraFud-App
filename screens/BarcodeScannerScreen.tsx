@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { Alert, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useFocusEffect } from "expo-router";
-import Animated, { FadeIn, FadeOut, SlideInUp, SlideOutDown } from "react-native-reanimated";
+import Animated, { FadeIn } from "react-native-reanimated";
 import {
   useCameraDevice,
   useCameraPermission,
-  usePhotoOutput,
   type CameraRef,
 } from "react-native-vision-camera";
 import { useBarcodeScannerOutput } from "react-native-vision-camera-barcode-scanner";
@@ -18,32 +17,28 @@ import { lookupProduct } from "services/productService";
 import { useAutoDateScanner } from "@/hooks/useAutoDateScanner";
 import { computeRoiRect } from "@/services/ocr/roi";
 import type { Candidate } from "@/services/ocr/autoScanner";
-import { emptyProduct, type ProductInfo } from "types";
+import { emptyProduct } from "types";
 import { formatDateString, parseDateString } from "@/helpers/format";
 import CameraSection from "@/components/CameraSection";
 import type { CameraLayout } from "@/components/CameraSection";
-import ProductSheet from "@/components/ProductSheet";
+import ScanSessionSheet, {
+  type SessionItem,
+} from "@/components/ScanSessionSheet";
 import DateScannerOverlay from "@/components/DateScannerOverlay";
 import {
   productRepository,
   inventoryRepository,
   notificationSettingsRepository,
+  scanSessionRepository,
 } from "@/db/repositories";
 import { rebuildAllReminders } from "@/services/notifications";
 import { showToast } from "@/helpers/toast";
 import { useAppTranslation } from "@/hooks/useAppTranslation";
 
-type ScanState =
-  | { status: "idle" }
-  | {
-      status: "found";
-      product: ProductInfo;
-      date?: string;
-      datePhotoUri?: string;
-    }
-  | { status: "scanning-date"; product: ProductInfo };
-
 type GuideRect = { x: number; y: number; width: number; height: number };
+
+const BARCODE_COOLDOWN_MS = 6000;
+const GLOBAL_BARCODE_DEBOUNCE_MS = 1200;
 
 export default function BarcodeScannerScreen() {
   const { t } = useAppTranslation();
@@ -52,24 +47,65 @@ export default function BarcodeScannerScreen() {
   );
   const [torch, setTorch] = useState<"off" | "on">("off");
   const [zoomLabel, setZoomLabel] = useState("1.0x");
-  const [scanState, setScanState] = useState<ScanState>({ status: "idle" });
+  const [sessionItems, setSessionItems] = useState<SessionItem[]>([]);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [pendingDate, setPendingDate] = useState(new Date());
+  const [editingItemKey, setEditingItemKey] = useState<string | null>(null);
+  const [activeScanTargetKey, setActiveScanTargetKey] = useState<string | null>(
+    null,
+  );
+  const [sessionVersionKey, setSessionVersionKey] = useState(0);
 
   const cameraRef = useRef<CameraRef>(null);
   const isScanningRef = useRef(true);
+  const lastBarcodeTimeRef = useRef(0);
   const lastZoomRef = useRef("1.0x");
-  const scanStateRef = useRef(scanState);
-  scanStateRef.current = scanState;
+  const sessionItemsRef = useRef(sessionItems);
+  sessionItemsRef.current = sessionItems;
   const guideRectRef = useRef<GuideRect | null>(null);
   const cameraLayoutRef = useRef<CameraLayout | null>(null);
+  const lastScanTimestampsRef = useRef<Map<string, number>>(new Map());
+  const keyCounterRef = useRef(0);
+  const keyToDbIdRef = useRef<Map<string, number>>(new Map());
 
   const device = useCameraDevice(cameraPosition);
   const { hasPermission, requestPermission } = useCameraPermission();
-  const photoOutput = usePhotoOutput({
-    quality: 0.8,
-    qualityPrioritization: "speed",
-  });
+
+  // Load persisted session on mount
+  useEffect(() => {
+    scanSessionRepository.loadSession().then((rows) => {
+      if (rows.length === 0) return;
+      const map = new Map<string, number>();
+      const items: SessionItem[] = rows.map((row) => {
+        const key = String(row.id);
+        map.set(key, row.id);
+        return {
+          key,
+          barcode: row.barcode,
+          product: row.productJson
+            ? JSON.parse(row.productJson)
+            : { ...emptyProduct, barcode: row.barcode },
+          date: row.date ?? undefined,
+          datePhotoUri: row.datePhotoUri ?? undefined,
+        };
+      });
+      keyToDbIdRef.current = map;
+      setSessionItems(items);
+      const maxKey = Math.max(...items.map((i) => parseInt(i.key, 10)), 0);
+      keyCounterRef.current = maxKey + 1;
+    });
+  }, []);
+
+  const scannerTargetKey = useMemo(
+    () =>
+      activeScanTargetKey ??
+      (sessionItems.length > 0
+        ? sessionItems[sessionItems.length - 1].key
+        : null),
+    [activeScanTargetKey, sessionItems],
+  );
+
+  const shouldRunScanner = sessionItems.length > 0;
 
   useFocusEffect(
     useCallback(() => {
@@ -80,39 +116,67 @@ export default function BarcodeScannerScreen() {
     }, []),
   );
 
+  function isValidBarcode(code: string): boolean {
+    if (!/^\d+$/.test(code)) return false;
+    return [6, 8, 12, 13].includes(code.length);
+  }
+
   const handleBarcodeScanned = useCallback(
     (barcodes: { rawValue?: string }[]) => {
-      if (scanStateRef.current.status !== "idle") return;
       if (!isScanningRef.current) return;
       const code = barcodes[0]?.rawValue;
-      if (!code) return;
+      if (!code || !isValidBarcode(code)) return;
 
-      isScanningRef.current = false;
+      const now = Date.now();
+      if (now - lastBarcodeTimeRef.current < GLOBAL_BARCODE_DEBOUNCE_MS) return;
+      lastBarcodeTimeRef.current = now;
+      const lastTime = lastScanTimestampsRef.current.get(code);
+      if (lastTime != null && now - lastTime < BARCODE_COOLDOWN_MS) return;
+      lastScanTimestampsRef.current.set(code, now);
 
-      // Show the bottom sheet immediately with empty product — no loading.
-      setScanState({
-        status: "found",
+      const key = String(keyCounterRef.current++);
+      const newItem: SessionItem = {
+        key,
+        barcode: code,
         product: { ...emptyProduct, barcode: code },
-      });
+      };
 
-      // Fetch product info in the background (non-blocking).
-      lookupProduct(code)
+      setSessionItems((prev) => [...prev, newItem]);
+      setActiveScanTargetKey(key);
+
+      // Persist to scan_session — key is stable, DB id stored in map
+      scanSessionRepository
+        .insertItem({
+          barcode: code,
+          productJson: JSON.stringify(newItem.product),
+          createdAt: new Date(),
+        })
+        .then((dbId) => {
+          keyToDbIdRef.current.set(key, dbId);
+          return lookupProduct(code);
+        })
         .then((p) => {
           if (p) {
-            setScanState((prev) =>
-              prev.status === "found" && prev.product.barcode === code
-                ? { ...prev, product: p }
-                : prev,
+            setSessionItems((prev) =>
+              prev.map((item) =>
+                item.key === key ? { ...item, product: p } : item,
+              ),
             );
+            const dbId = keyToDbIdRef.current.get(key);
+            if (dbId != null) {
+              scanSessionRepository.updateItem(dbId, {
+                productJson: JSON.stringify(p),
+              });
+            }
           } else {
-            showToast(t('scanner.productNotFound'));
+            showToast(t("scanner.productNotFound"));
           }
         })
         .catch(() => {
-          showToast(t('scanner.connectionError'));
+          showToast(t("scanner.connectionError"));
         });
     },
-    [],
+    [t],
   );
 
   const handleError = useCallback((error: Error) => {
@@ -214,53 +278,15 @@ export default function BarcodeScannerScreen() {
     guideRectRef.current = rect;
   }, []);
 
-  const goToIdle = useCallback(() => {
-    isScanningRef.current = true;
-    setScanState({ status: "idle" });
-  }, []);
-
-  const handleChangeName = useCallback((name: string) => {
-    setScanState((prev) => {
-      if (prev.status === "found") {
-        return { ...prev, product: { ...prev.product, name } };
-      }
-      return prev;
-    });
-  }, []);
-
-  const handleCancelDateScan = useCallback(() => {
-    const s = scanStateRef.current;
-    if (s.status === "scanning-date") {
-      setScanState({ status: "found", product: s.product });
-    }
-  }, []);
-
-  const handleScanDate = useCallback(() => {
-    const s = scanStateRef.current;
-    if (s.status === "found") {
-      guideRectRef.current = null;
-      setScanState({ status: "scanning-date", product: s.product });
-    }
-  }, []);
-
-  /**
-   * Takes an instant snapshot and, when a date-guide box is visible, crops
-   * to that region before OCR — keeps ML Kit focused on the date area for
-   * better speed and accuracy.
-   */
   const captureCandidate = useCallback(async (): Promise<Candidate | null> => {
     try {
       const camera = cameraRef.current;
       if (!camera) return null;
       const snapshot = await camera.takeSnapshot();
 
-      // Save the full frame as evidence photo.
-      const photoPath = await snapshot.saveToTemporaryFileAsync("jpg", 80);
-
-      // Lightweight crop to the on-screen date guide (no pixel enhancement).
       const camLayout = cameraLayoutRef.current;
       const guide = guideRectRef.current;
-      let ocrPath = photoPath;
+      let ocrPath = "";
 
       if (camLayout && guide && snapshot.width > 0 && snapshot.height > 0) {
         const roi = computeRoiRect({
@@ -276,48 +302,60 @@ export default function BarcodeScannerScreen() {
           const ey = Math.min(snapshot.height, Math.ceil(roi.y + roi.height));
           if (ex - sx > 8 && ey - sy > 8) {
             const cropped = snapshot.crop(sx, sy, ex, ey);
-            ocrPath = await cropped.saveToTemporaryFileAsync("jpg", 80);
+            ocrPath = await cropped.saveToTemporaryFileAsync("jpg", 60);
+            return { ocrPath, photoPath: ocrPath };
           }
         }
       }
 
-      return { ocrPath, photoPath };
+      ocrPath = await snapshot.saveToTemporaryFileAsync("jpg", 60);
+      return { ocrPath, photoPath: ocrPath };
     } catch (e) {
       console.warn("captureCandidate error:", e);
       return null;
     }
   }, []);
 
-  const handleDateAccepted = useCallback((date: string, photoUri: string) => {
-    const s = scanStateRef.current;
-    if (s.status !== "scanning-date") return;
+  const scannerTargetKeyRef = useRef<string | null>(null);
+  scannerTargetKeyRef.current = scannerTargetKey;
 
-    // Validate expiration year (max 4 years in future)
-    const [day, month, year] = date.split("/").map(Number);
-    const currentYear = new Date().getFullYear();
-    const maxYear = currentYear + 4;
+  const handleDateAccepted = useCallback(
+    (date: string, photoUri: string) => {
+      const [day, month, year] = date.split("/").map(Number);
+      const currentYear = new Date().getFullYear();
+      const maxYear = currentYear + 4;
 
-    if (year > maxYear) {
-      showToast(t('scanner.dateFarInFuture', { year }));
-    }
+      if (year > maxYear) {
+        showToast(t("scanner.dateFarInFuture", { year }));
+      }
 
-    setScanState({
-      status: "found",
-      product: s.product,
-      date,
-      datePhotoUri: photoUri,
-    });
-  }, []);
+      const targetKey = scannerTargetKeyRef.current;
+      if (!targetKey) return;
+
+      setSessionItems((prev) =>
+        prev.map((item) =>
+          item.key === targetKey
+            ? { ...item, date, datePhotoUri: photoUri }
+            : item,
+        ),
+      );
+
+      const dbId = keyToDbIdRef.current.get(targetKey);
+      if (dbId != null) {
+        scanSessionRepository.updateItem(dbId, {
+          date,
+          datePhotoUri: photoUri,
+        });
+      }
+    },
+    [t],
+  );
 
   const handleDateExhausted = useCallback(() => {
-    const s = scanStateRef.current;
-    if (s.status !== "scanning-date") return;
-    showToast(t('scanner.dateNotDetected'));
-    setScanState({ status: "found", product: s.product });
+    showToast(t("scanner.dateNotDetected"));
   }, [t]);
 
   const {
-    frameOutput,
     start: startAutoScan,
     stop: stopAutoScan,
     progress,
@@ -325,103 +363,175 @@ export default function BarcodeScannerScreen() {
     captureCandidate,
     onAccepted: handleDateAccepted,
     onExhausted: handleDateExhausted,
+    continuous: true,
   });
 
-  // While scanning a date we swap the barcode scanner for the frame gate:
-  // the barcode reader isn't needed here, and this keeps the simultaneous
-  // output count low.
-  const outputs = useMemo(
-    () =>
-      scanState.status === "scanning-date"
-        ? [photoOutput, frameOutput]
-        : [scannerOutput, photoOutput],
-    [scannerOutput, photoOutput, frameOutput, scanState.status],
-  );
+  const outputs = useMemo(() => [scannerOutput], [scannerOutput]);
 
   useEffect(() => {
-    if (scanState.status === "scanning-date") {
+    if (shouldRunScanner) {
       startAutoScan();
       return () => stopAutoScan();
     }
-  }, [scanState.status, startAutoScan, stopAutoScan]);
+  }, [shouldRunScanner, startAutoScan, stopAutoScan]);
 
-  const handleDateConfirm = useCallback(async () => {
-    const s = scanStateRef.current;
-    if (s.status !== "found" || !s.date) return;
-
-    await productRepository.upsertProduct({
-      barcode: s.product.barcode,
-      name: s.product.name,
-      brand: s.product.brand,
-      quantity: s.product.quantity,
-      ingredients: s.product.ingredients,
-      imageFrontUrl: s.product.imageFrontUrl,
-      categories: s.product.categories,
-      nutriscore: s.product.nutriscore,
-      createdAt: new Date(),
-    });
-
-    const inserted = await inventoryRepository.addInventoryItem({
-      barcode: s.product.barcode,
-      expirationDate: s.date,
-      datePhotoUri: s.datePhotoUri ?? null,
-      createdAt: new Date(),
-    });
-
-    try {
-      const settings = await notificationSettingsRepository.getNotificationSettings();
-      if (settings.enabled) {
-        await rebuildAllReminders();
-      }
-    } catch {
-      // Fallar silenciosamente en recordatorios — no debe bloquear el guardado
+  const prevTargetRef = useRef(scannerTargetKey);
+  useEffect(() => {
+    if (shouldRunScanner && scannerTargetKey !== prevTargetRef.current) {
+      prevTargetRef.current = scannerTargetKey;
+      stopAutoScan();
+      startAutoScan();
     }
+  }, [scannerTargetKey, shouldRunScanner, startAutoScan, stopAutoScan]);
 
-    showToast(t('scanner.productSaved'));
-    goToIdle();
-  }, [goToIdle, t]);
+  const handleFinalize = useCallback(async () => {
+    try {
+      const items = sessionItemsRef.current;
 
-  const handleDateCancel = useCallback(() => {
-    goToIdle();
-  }, [goToIdle]);
+      for (const item of items) {
+        const p = item.product;
+        await productRepository.upsertProduct({
+          barcode: p.barcode,
+          name: p.name,
+          brand: p.brand,
+          quantity: p.quantity,
+          ingredients: p.ingredients,
+          imageFrontUrl: p.imageFrontUrl,
+          categories: p.categories,
+          nutriscore: p.nutriscore,
+          dataJson: JSON.stringify(p),
+          createdAt: new Date(),
+        });
 
-  const handleDateEdit = useCallback(() => {
-    const s = scanStateRef.current;
-    if (s.status === "found" && s.date) {
-      const parsed = parseDateString(s.date);
+        if (item.date) {
+          await inventoryRepository.addInventoryItem({
+            barcode: item.product.barcode,
+            expirationDate: item.date,
+            datePhotoUri: item.datePhotoUri ?? null,
+            createdAt: new Date(),
+          });
+        }
+      }
+
+      try {
+        const settings =
+          await notificationSettingsRepository.getNotificationSettings();
+        if (settings.enabled) {
+          await rebuildAllReminders();
+        }
+      } catch {
+        // Non-critical — don't block saving
+      }
+
+      await scanSessionRepository.clearSession();
+      keyToDbIdRef.current.clear();
+
+      showToast(t("scanner.productSaved"));
+      setSessionItems([]);
+      isScanningRef.current = true;
+    } catch (e) {
+      console.warn("handleFinalize error:", e);
+      showToast(t("messages.errorSaving"));
+    }
+  }, [t]);
+
+  const handleCancelSession = useCallback(() => {
+    const count = sessionItemsRef.current.length;
+    Alert.alert(
+      t("scanner.cancelSessionTitle"),
+      t("scanner.cancelSessionBody", { count }),
+      [
+        {
+          text: t("scanner.continueScanning"),
+          style: "cancel",
+          onPress: () => {
+            setSessionVersionKey((k) => k + 1);
+          },
+        },
+        {
+          text: t("scanner.cancelAll"),
+          style: "destructive",
+          onPress: async () => {
+            await scanSessionRepository.clearSession();
+            keyToDbIdRef.current.clear();
+            setSessionItems([]);
+            isScanningRef.current = true;
+          },
+        },
+      ],
+    );
+  }, [t]);
+
+  const handleRemoveItem = useCallback((key: string) => {
+    const dbId = keyToDbIdRef.current.get(key);
+    if (dbId != null) {
+      scanSessionRepository.deleteItem(dbId);
+      keyToDbIdRef.current.delete(key);
+    }
+    setActiveScanTargetKey((prev) => (prev === key ? null : prev));
+    setSessionItems((prev) => prev.filter((item) => item.key !== key));
+  }, []);
+
+  const handleScanDate = useCallback((key: string) => {
+    setActiveScanTargetKey((prev) => (prev === key ? null : key));
+  }, []);
+
+  const handleEditDate = useCallback((key: string) => {
+    const item = sessionItemsRef.current.find((i) => i.key === key);
+    if (item?.date) {
+      const parsed = parseDateString(item.date);
       setPendingDate(parsed);
     } else {
       const today = new Date();
-      const todayUTC = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
+      const todayUTC = new Date(
+        Date.UTC(
+          today.getUTCFullYear(),
+          today.getUTCMonth(),
+          today.getUTCDate(),
+        ),
+      );
       setPendingDate(todayUTC);
     }
+    setEditingItemKey(key);
     setShowDatePicker(true);
   }, []);
 
   const handleDatePickerConfirm = useCallback(() => {
     const formatted = formatDateString(pendingDate);
-    const s = scanStateRef.current;
-    if (s.status === "found") {
-      setScanState({ ...s, date: formatted });
+    if (editingItemKey) {
+      setSessionItems((prev) =>
+        prev.map((item) =>
+          item.key === editingItemKey ? { ...item, date: formatted } : item,
+        ),
+      );
+      const dbId = keyToDbIdRef.current.get(editingItemKey);
+      if (dbId != null) {
+        scanSessionRepository.updateItem(dbId, {
+          date: formatted,
+        });
+      }
+      setActiveScanTargetKey((prev) => (prev === editingItemKey ? null : prev));
     }
     setShowDatePicker(false);
-  }, [pendingDate]);
+    setEditingItemKey(null);
+  }, [pendingDate, editingItemKey]);
 
   const handleDatePickerCancel = useCallback(() => {
     setShowDatePicker(false);
+    setEditingItemKey(null);
   }, []);
 
   if (hasPermission === false) {
     return (
       <Animated.View entering={FadeIn} style={styles.center}>
         <AppText variant="body" style={styles.msg}>
-          {t('scanner.cameraPermissionRequired')}
+          {t("scanner.cameraPermissionRequired")}
         </AppText>
         <Button variant="primary" onPress={requestPermission}>
-          {t('settings.grantPermission')}
+          {t("settings.grantPermission")}
         </Button>
         <Button variant="secondary" onPress={() => router.back()}>
-          {t('scanner.goBack')}
+          {t("scanner.goBack")}
         </Button>
       </Animated.View>
     );
@@ -431,10 +541,10 @@ export default function BarcodeScannerScreen() {
     return (
       <Animated.View entering={FadeIn} style={styles.center}>
         <AppText variant="body" style={styles.msg}>
-          {t('scanner.noCameraAvailable')}
+          {t("scanner.noCameraAvailable")}
         </AppText>
         <Button variant="primary" onPress={() => router.back()}>
-          {t('scanner.goBack')}
+          {t("scanner.goBack")}
         </Button>
       </Animated.View>
     );
@@ -461,39 +571,27 @@ export default function BarcodeScannerScreen() {
         onCameraLayout={handleCameraLayout}
       />
 
-      {scanState.status === "found" && (
-        <Animated.View
-          entering={SlideInUp.duration(300).springify()}
-          exiting={SlideOutDown.duration(250)}
-        >
-          <ProductSheet
-            product={scanState.product}
-            date={scanState.date}
-            onDismiss={goToIdle}
-            onScanDate={handleScanDate}
-            onDateConfirm={handleDateConfirm}
-            onDateCancel={handleDateCancel}
-            onEditDate={handleDateEdit}
-            onChangeName={handleChangeName}
-          />
-        </Animated.View>
+      {shouldRunScanner && (
+        <DateScannerOverlay
+          onLayoutGuide={handleGuideLayout}
+          statusText={
+            progress && progress.leader
+              ? t("scanner.confirmingDate", { date: progress.leader })
+              : t("scanner.searchingDate")
+          }
+        />
       )}
 
-      {scanState.status === "scanning-date" && (
-        <Animated.View
-          entering={FadeIn.duration(250)}
-          exiting={FadeOut.duration(200)}
-        >
-          <DateScannerOverlay
-            onCancel={handleCancelDateScan}
-            onLayoutGuide={handleGuideLayout}
-            statusText={
-              progress && progress.leader
-                ? t('scanner.confirmingDate', { date: progress.leader })
-                : t('scanner.searchingDate')
-            }
-          />
-        </Animated.View>
+      {sessionItems.length > 0 && (
+        <ScanSessionSheet
+          key={sessionVersionKey}
+          items={sessionItems}
+          onRemoveItem={handleRemoveItem}
+          onEditDate={handleEditDate}
+          onScanDate={handleScanDate}
+          onFinalize={handleFinalize}
+          onCancel={handleCancelSession}
+        />
       )}
 
       <DateTimePickerSheet

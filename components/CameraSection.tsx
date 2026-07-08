@@ -33,11 +33,6 @@ export type CameraSectionProps = {
   hideFlip?: boolean;
 };
 
-/**
- * Full-screen camera view with overlay controls: back button, torch toggle,
- * camera flip, and zoom buttons. Reports its measured layout back to the
- * parent to align cropping with the visible viewport.
- */
 const CameraSection = memo(function CameraSection({
   device,
   outputs,

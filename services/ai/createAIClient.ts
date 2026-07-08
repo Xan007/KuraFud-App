@@ -55,13 +55,11 @@ export function createAIClient(config: AIClientConfig): AIProvider {
       });
     }
 
-    default: {
-      const _exhaustive: never = providerDescriptor.adapter;
+    default:
       throw new AIError(
-        `Unsupported adapter: ${_exhaustive}`,
+        `Unsupported adapter: ${providerDescriptor.adapter}`,
         "CONFIG_ERROR",
       );
-    }
   }
 }
 
@@ -76,7 +74,7 @@ function getBaseUrl(providerId: string): string {
     fireworks: "https://api.fireworks.ai/inference/v1",
     deepinfra: "https://api.deepinfra.com/v1/openai",
     mistral: "https://api.mistral.ai/v1",
-    custom: "", // Will be set by user; throw error if not provided
+    custom: "",
   };
 
   const url = baseUrls[providerId];

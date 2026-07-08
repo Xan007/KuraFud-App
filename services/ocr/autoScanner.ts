@@ -2,23 +2,8 @@ import { recognizeText } from "./mlkitOcr";
 import { detectDate } from "../dateDetection";
 import { createVoteBox, DEFAULT_VOTING, type VotingConfig } from "./voting";
 
-/**
- * Orchestrates the *validation* half of the automatic OCR pipeline, decoupled
- * from React and the camera.
- *
- * The camera/worklet side decides **when** a frame is good and calls
- * {@link AutoScanner.submit}.  This module then, for each accepted trigger:
- *   capture+enhance (injected) → ML Kit OCR → regex date → weighted vote →
- * accept when the reading is stable, or give up after a timeout / attempt cap.
- *
- * It guards a single in-flight OCR and a minimum interval between captures so
- * bursts of good frames don't pile up work.
- */
-
 export type Candidate = {
-  /** Enhanced, OCR-ready image path. */
   ocrPath: string;
-  /** Original photo path to keep as the stored evidence / preview. */
   photoPath: string;
 };
 
@@ -31,7 +16,6 @@ export type ScanProgress = {
 };
 
 export type AutoScannerConfig = {
-  /** Captures a frame and returns an enhanced OCR file (or null on failure). */
   captureCandidate: () => Promise<Candidate | null>;
   onAccepted: (date: string, photoPath: string) => void;
   onExhausted?: () => void;
@@ -41,12 +25,12 @@ export type AutoScannerConfig = {
   maxAttempts?: number;
   timeoutMs?: number;
   voting?: VotingConfig;
+  continuous?: boolean;
 };
 
 export type AutoScanner = {
   start(): void;
   stop(): void;
-  /** Called (from JS) whenever the worklet gate reports a good frame. */
   submit(qualityScore: number): void;
   isRunning(): boolean;
 };
@@ -58,10 +42,11 @@ export function createAutoScanner(config: AutoScannerConfig): AutoScanner {
     onExhausted,
     onProgress,
     onError,
-    minCaptureIntervalMs = 100,
+    minCaptureIntervalMs = 60,
     maxAttempts = Infinity,
-    timeoutMs = 6000,
-    voting = { requiredVotes: 2.5, leadMargin: 1.0 },
+    timeoutMs = 4000,
+    voting = { requiredVotes: 1.5, leadMargin: 0.5 },
+    continuous = false,
   } = config;
 
   const votes = createVoteBox(voting);
@@ -143,7 +128,6 @@ export function createAutoScanner(config: AutoScannerConfig): AutoScanner {
 
       const date = detectDate(text);
 
-      // Start voting timeout when we detect the first date
       if (date && !hasDetectedDate) {
         hasDetectedDate = true;
         startVotingTimeout();
@@ -158,9 +142,14 @@ export function createAutoScanner(config: AutoScannerConfig): AutoScanner {
       );
 
       if (state.accepted) {
-        stop();
         onAccepted(state.accepted, candidate.photoPath);
-        return;
+        if (!continuous) {
+          stop();
+          return;
+        }
+        votes.reset();
+        hasDetectedDate = false;
+        clearVotingTimer();
       }
     } catch (e) {
       onError?.(e instanceof Error ? e : new Error(String(e)));

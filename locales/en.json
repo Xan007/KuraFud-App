@@ -38,7 +38,8 @@
     "nothingExpiringSoon": "Nothing expiring soon",
     "allProductsGood": "All your products are good!",
     "scanProduct": "Scan Product",
-    "scanReceipt": "Scan Receipt"
+    "scanReceipt": "Scan Receipt",
+    "aiNotConfigured": "Configure an AI provider in Settings to use this feature"
   },
   "kitchen": {
     "title": "Kitchen",
@@ -96,7 +97,12 @@
     "goBack": "Go back",
     "dateFarInFuture": "Date too far in the future ({{year}}). Please verify it is correct.",
     "searchingDate": "Searching for the date automatically…",
-    "confirmingDate": "Confirming {{date}}…"
+    "confirmingDate": "Confirming {{date}}…",
+    "missingDates": "Missing dates: tap a product in the list to enter it",
+    "cancelSessionTitle": "Cancel scanning",
+    "cancelSessionBody": "{{count}} scanned products will be lost.",
+    "continueScanning": "Continue scanning",
+    "cancelAll": "Cancel all"
   },
   "messages": {
     "productDeleted": "Product deleted",
