@@ -26,6 +26,7 @@
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundColor": "#34A853"
       },
+
       "predictiveBackGestureEnabled": false,
       "package": "com.anonymous.Expirat",
       "permissions": [
