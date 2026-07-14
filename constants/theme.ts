@@ -1,4 +1,3 @@
-/** Centralised colour palette used across every screen and component. */
 export const Colors = {
   primary: "#34A853",
   background: "#FAFAFA",
@@ -9,7 +8,7 @@ export const Colors = {
   white: "#FFFFFF",
   warning: "#F59E0B",
   error: "#EF4444",
-  // New semantic colors
+
   overlay: "rgba(0,0,0,0.5)",
   overlayLight: "rgba(255,255,255,0.25)",
   shadow: "rgba(0,0,0,0.08)",
@@ -18,7 +17,6 @@ export const Colors = {
   errorTextMuted: "#991B1B",
 } as const;
 
-/** Spacing tokens for consistent layout. */
 export const Spacing = {
   xs: 4,
   sm: 8,
@@ -27,7 +25,6 @@ export const Spacing = {
   xl: 24,
 } as const;
 
-/** Font-size scale used throughout the app. */
 export const FontSize = {
   sm: 12,
   md: 14,
@@ -36,7 +33,6 @@ export const FontSize = {
   xxl: 28,
 } as const;
 
-/** Font weight scale. */
 export const FontWeight = {
   regular: "400" as const,
   medium: "500" as const,
@@ -44,7 +40,6 @@ export const FontWeight = {
   bold: "700" as const,
 } as const;
 
-/** Border radius scale. */
 export const BorderRadius = {
   sm: 8,
   md: 12,
@@ -53,19 +48,17 @@ export const BorderRadius = {
   pill: 999,
 } as const;
 
-/** Helper to add opacity to a color hex string. */
 export function withOpacity(hexColor: string, alpha: number): string {
-  // Convert hex to RGB
+
   const hex = hexColor.replace("#", "");
   const r = parseInt(hex.substring(0, 2), 16);
   const g = parseInt(hex.substring(2, 4), 16);
   const b = parseInt(hex.substring(4, 6), 16);
-  // Clamp alpha to 0-1
+
   const clampedAlpha = Math.max(0, Math.min(1, alpha));
   return `rgba(${r},${g},${b},${clampedAlpha})`;
 }
 
-/** Typography presets combining fontSize, fontWeight, and optional letterSpacing. */
 export const Typography = {
   title: {
     fontSize: FontSize.xl,

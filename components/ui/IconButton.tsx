@@ -12,10 +12,6 @@ interface IconButtonProps extends Omit<PressableProps, "style" | "children"> {
   style?: any;
 }
 
-/**
- * Unified circular icon-only button component.
- * Replaces duplicated circular icon buttons across camera, topbar, inventory FAB, etc.
- */
 export function IconButton({
   variant = "plain",
   size = "md",

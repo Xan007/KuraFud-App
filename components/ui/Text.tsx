@@ -9,11 +9,6 @@ interface AppTextProps extends Omit<TextProps, "style"> {
   style?: any;
 }
 
-/**
- * Unified text component with typography variants.
- * Replaces raw Text + StyleSheet.create patterns across the app.
- * Ensures consistent font sizes, weights, and colors.
- */
 export function AppText({
   variant = "body",
   color = Colors.text,

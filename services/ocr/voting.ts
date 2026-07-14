@@ -1,6 +1,3 @@
-// Single frames can misread `8` as `B` — consensus across readings avoids
-// trusting one capture.  A candidate is accepted only when it's clearly ahead.
-
 export type VotingConfig = {
   requiredVotes: number;
   leadMargin: number;

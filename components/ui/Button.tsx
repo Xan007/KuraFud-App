@@ -12,10 +12,6 @@ interface ButtonProps extends Omit<PressableProps, "style" | "children"> {
   style?: any;
 }
 
-/**
- * Unified button component.
- * Replaces duplicated primary/secondary button patterns across multiple screens.
- */
 export function Button({
   variant = "primary",
   size = "md",

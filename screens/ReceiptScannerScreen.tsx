@@ -39,14 +39,12 @@ export default function ReceiptScannerScreen() {
 
     setAnalyzing(true);
     try {
-      // Tomar snapshot
+
       const snapshot = await cameraRef.current.takeSnapshot();
       const photoPath = await snapshot.saveToTemporaryFileAsync("jpg", 0.8);
 
-      // Analizar con IA
       const results = await analyzeReceiptImage(photoPath);
 
-      // Navegar a resultados
       router.push({
         pathname: "/receipt-results",
         params: { results: JSON.stringify(results) },
@@ -124,7 +122,6 @@ export default function ReceiptScannerScreen() {
         hideFlip
       />
 
-      {/* Capture button — overlaid on camera */}
       <View
         style={[
           styles.captureSection,

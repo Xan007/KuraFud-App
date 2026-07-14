@@ -68,7 +68,7 @@ export default function HomeScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Scan buttons - always visible at top */}
+
         <View style={styles.scanSection}>
           <View style={styles.buttonRow}>
             <Button
@@ -119,7 +119,6 @@ export default function HomeScreen() {
           </Pressable>
         </View>
 
-        {/* Expiring items section */}
         {expiringItems.length > 0 && (
           <Animated.View
             style={styles.section}
@@ -162,7 +161,6 @@ export default function HomeScreen() {
           </Animated.View>
         )}
 
-        {/* Empty state - only when no items and not loading */}
         {expiringItems.length === 0 && !loading && (
           <EmptyState
             icon={

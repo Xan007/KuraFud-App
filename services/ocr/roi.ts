@@ -17,7 +17,6 @@ export type RoiInput = {
   expand?: number;
 };
 
-// Maps on-screen guide box to photo-pixel crop, accounting for `cover` scaling.
 export function computeRoiRect(input: RoiInput): Rect | undefined {
   const { photoW, photoH, camLayout, guide, expand = 0.2 } = input;
 

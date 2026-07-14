@@ -1,7 +1,5 @@
 import TextRecognition from "@react-native-ml-kit/text-recognition";
 
-// ML Kit only accepts a file URI (not a camera Frame), which is why the
-// pipeline saves a snapshot first.  Some builds are picky about `file://`.
 export async function recognizeText(path: string): Promise<string> {
   const candidates = path.startsWith("file://")
     ? [path, path.replace(/^file:\/\//, "")]

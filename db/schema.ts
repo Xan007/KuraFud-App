@@ -75,7 +75,6 @@ export const scanSession = sqliteTable("scan_session", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
-// Type exports for use across the app
 export type Product = typeof products.$inferSelect;
 export type InventoryItem = typeof inventory.$inferSelect;
 export type NotificationSettings = typeof notificationSettings.$inferSelect;
@@ -85,7 +84,6 @@ export type ReminderBatchItem = typeof reminderBatchItems.$inferSelect;
 export type AISettings = typeof aiSettings.$inferSelect;
 export type ScanSessionItem = typeof scanSession.$inferSelect;
 
-// Inferred type for products with nested inventory items
 export type ProductWithInventory = Product & {
   inventory: InventoryItem[];
 };
