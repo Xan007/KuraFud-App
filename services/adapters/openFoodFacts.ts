@@ -16,7 +16,7 @@ const PRODUCTION_URL = "https://world.openfoodfacts.org";
 const STAGING_URL = "https://world.openfoodfacts.net";
 const SEARCH_URL = "https://search.openfoodfacts.org/search";
 
-const USER_AGENT = "Expirat/1.0 (https://github.com/expirat) react-native";
+const USER_AGENT = "KuraFud/1.0 (https://github.com/kurafud) react-native";
 
 
 const useStaging = typeof __DEV__ !== "undefined" && __DEV__;

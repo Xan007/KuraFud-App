@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Project-specific guidance for AI agents working on the Expirat codebase.
+Project-specific guidance for AI agents working on the KuraFud codebase.
 See also `CLAUDE.md` for the high-level architecture overview.
 
 ## Commands

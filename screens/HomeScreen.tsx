@@ -61,7 +61,7 @@ export default function HomeScreen() {
 
   return (
     <View style={{ width, height }}>
-      <TopBar title="Expirat" />
+      <TopBar title="KuraFud" />
 
       <ScrollView
         style={styles.scrollView}

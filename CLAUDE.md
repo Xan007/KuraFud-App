@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Expirat** is a React Native mobile app (built with Expo) that helps track food expiration dates. It uses barcode scanning (Vision Camera) to identify products and automatic OCR (ML Kit Text Recognition) to detect expiration dates from product packaging. The app stores product metadata and inventory with SQLite (Drizzle ORM).
+**KuraFud** is a React Native mobile app (built with Expo) that helps track food expiration dates. It uses barcode scanning (Vision Camera) to identify products and automatic OCR (ML Kit Text Recognition) to detect expiration dates from product packaging. The app stores product metadata and inventory with SQLite (Drizzle ORM).
 
 The UI is in Spanish.
 

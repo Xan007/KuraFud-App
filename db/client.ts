@@ -3,7 +3,7 @@ import { drizzle } from "drizzle-orm/expo-sqlite";
 import * as schema from "./schema";
 import * as relations from "./relations";
 
-export const sqliteDb = SQLite.openDatabaseSync("expirat.db");
+export const sqliteDb = SQLite.openDatabaseSync("kurafud.db");
 
 const tables = [
   `CREATE TABLE IF NOT EXISTS products (

@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "Expirat",
-    "slug": "Expirat",
+    "name": "KuraFud",
+    "slug": "KuraFud",
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
-    "scheme": "expirat",
+    "scheme": "kurafud",
     "icon": "./assets/icon.png",
     "splash": {
       "image": "./assets/splash-icon.png",
@@ -18,7 +18,7 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSCameraUsageDescription": "Expirat necesita acceso a la cámara para escanear códigos y reconocer texto."
+        "NSCameraUsageDescription": "KuraFud necesita acceso a la cámara para escanear códigos y reconocer texto."
       }
     },
     "android": {
@@ -28,7 +28,7 @@
       },
 
       "predictiveBackGestureEnabled": false,
-      "package": "com.anonymous.Expirat",
+      "package": "com.anonymous.KuraFud",
       "permissions": [
         "android.permission.CAMERA"
       ]

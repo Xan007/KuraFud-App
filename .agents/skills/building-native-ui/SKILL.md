@@ -1,11 +1,11 @@
 ---
 name: building-native-ui
-description: Complete guide for building beautiful apps with Expo Router. Covers fundamentals, styling, components, navigation, animations, patterns, and native tabs. Adapted for Expirat project.
+description: Complete guide for building beautiful apps with Expo Router. Covers fundamentals, styling, components, navigation, animations, patterns, and native tabs. Adapted for KuraFud project.
 version: 1.0.1
 license: MIT
 ---
 
-# Expo UI Guidelines (Expirat Project)
+# Expo UI Guidelines (KuraFud Project)
 
 ## References
 
@@ -31,7 +31,7 @@ references/
 
 ## Project Context
 
-This project (`Expirat`) is an **Expo SDK 56 React Native app** that uses:
+This project (`KuraFud`) is an **Expo SDK 56 React Native app** that uses:
 - **Simple state-based navigation** (`App.tsx` with a `Screen` enum), not `expo-router`
 - **`@expo/ui` universal API** (`Column`, `Text`, `Button` from `@expo/ui`) for UI components
 - **`react-native-vision-camera` v5** for camera functionality

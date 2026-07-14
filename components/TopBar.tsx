@@ -14,7 +14,7 @@ type Props = {
 
 
 export default function TopBar({
-  title = "Expirat",
+  title = "KuraFud",
   showBack,
   onBack,
   rightSlot,

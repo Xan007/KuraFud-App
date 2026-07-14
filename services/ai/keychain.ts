@@ -1,7 +1,7 @@
 import * as Keychain from "react-native-keychain";
 import { Platform } from "react-native";
 
-const SERVICE_PREFIX = "expirat.ai";
+const SERVICE_PREFIX = "kurafud.ai";
 
 function getServiceName(providerId: string): string {
   return `${SERVICE_PREFIX}.${providerId}`;
