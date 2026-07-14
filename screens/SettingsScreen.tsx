@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "expo-router";
+import { useCallback, useMemo, useState } from "react";
+import { useRouter, useFocusEffect } from "expo-router";
 import {
   Pressable,
   ScrollView,
@@ -7,12 +7,14 @@ import {
   Switch,
   View,
 } from "react-native";
+import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { SymbolView } from "expo-symbols";
 
 import {
   Colors,
   Spacing,
+  BorderRadius,
   withOpacity,
 } from "@/constants/theme";
 import TopBar from "@/components/TopBar";
@@ -29,11 +31,12 @@ import {
   requestNotificationPermission,
   getNotificationPermissionStatus,
   rebuildAllReminders,
+  formatOffsetLabel,
 } from "@/services/notifications";
-import { formatOffsetLabel } from "@/services/notifications";
 import { useAppTranslation } from "@/hooks/useAppTranslation";
 import { getAPIKey } from "@/services/ai/keychain";
 import { getProviderById } from "@/services/ai/registry";
+import { createAIClient } from "@/services/ai/createAIClient";
 
 type NotificationOffset = {
   id: number;
@@ -59,6 +62,11 @@ export default function SettingsScreen() {
   const [reminderMinute, setReminderMinute] = useState(0);
   const [offsets, setOffsets] = useState<NotificationOffset[]>([]);
   const [showTimePicker, setShowTimePicker] = useState(false);
+  const [rulesExpanded, setRulesExpanded] = useState(false);
+  const chevronRotation = useSharedValue(0);
+  const chevronStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${chevronRotation.value}deg` }],
+  }));
   const [loading, setLoading] = useState(true);
   const [aiSettings, setAiSettings] = useState<{
     provider: string;
@@ -68,6 +76,9 @@ export default function SettingsScreen() {
     apiKey: string;
     customApiUrl: string;
   } | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState<
+    "unknown" | "checking" | "connected" | "disconnected"
+  >("unknown");
 
   const pickerDate = useMemo(() => {
     const d = new Date();
@@ -75,48 +86,81 @@ export default function SettingsScreen() {
     return d;
   }, [reminderHour, reminderMinute]);
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const settings =
-          await notificationSettingsRepository.getNotificationSettings();
-        setEnabled(settings.enabled);
-        setReminderHour(settings.reminderHour);
-        setReminderMinute(settings.reminderMinute);
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
 
-        const offsetsData = await reminderRepository.getReminderOffsets();
-        setOffsets(offsetsData);
+      const load = async () => {
+        try {
+          const settings =
+            await notificationSettingsRepository.getNotificationSettings();
+          if (!active) return;
+          setEnabled(settings.enabled);
+          setReminderHour(settings.reminderHour);
+          setReminderMinute(settings.reminderMinute);
 
-        const perm = await getNotificationPermissionStatus();
-        setPermissionStatus(
-          perm === "granted"
-            ? "granted"
-            : perm === "denied"
-              ? "denied"
-              : "unknown",
-        );
+          const offsetsData = await reminderRepository.getReminderOffsets();
+          if (!active) return;
+          setOffsets(offsetsData);
 
-        const aiConfig = await aiSettingsRepository.getAISettings();
-        if (aiConfig.provider && aiConfig.model) {
-          const apiKey = await getAPIKey(aiConfig.provider);
-          const provider = getProviderById(aiConfig.provider);
-          setAiSettings({
-            provider: provider?.name || aiConfig.provider,
-            providerId: aiConfig.provider,
-            model: aiConfig.model,
-            maxTokens: aiConfig.maxTokens,
-            apiKey: apiKey || "",
-            customApiUrl: aiConfig.customApiUrl || "",
-          });
+          const perm = await getNotificationPermissionStatus();
+          if (!active) return;
+          setPermissionStatus(
+            perm === "granted"
+              ? "granted"
+              : perm === "denied"
+                ? "denied"
+                : "unknown",
+          );
+
+          const aiConfig = await aiSettingsRepository.getAISettings();
+          if (!active) return;
+          if (aiConfig.provider && aiConfig.model) {
+            const apiKey = await getAPIKey(aiConfig.provider);
+            const provider = getProviderById(aiConfig.provider);
+            const settings = {
+              provider: provider?.name || aiConfig.provider,
+              providerId: aiConfig.provider,
+              model: aiConfig.model,
+              maxTokens: aiConfig.maxTokens,
+              apiKey: apiKey || "",
+              customApiUrl: aiConfig.customApiUrl || "",
+            };
+            setAiSettings(settings);
+
+
+            setConnectionStatus("checking");
+            try {
+              const client = createAIClient({
+                providerId: settings.providerId,
+                model: settings.model,
+                apiKey: settings.apiKey,
+                maxTokens: settings.maxTokens ?? undefined,
+                customApiUrl: settings.customApiUrl,
+              });
+              const result = await client.testConnection();
+              if (active) {
+                setConnectionStatus(result.success ? "connected" : "disconnected");
+              }
+            } catch {
+              if (active) setConnectionStatus("disconnected");
+            }
+          } else {
+            setConnectionStatus("disconnected");
+          }
+        } catch (e) {
+          console.error("Error cargando ajustes:", e);
+        } finally {
+          if (active) setLoading(false);
         }
-      } catch (e) {
-        console.error("Error cargando ajustes:", e);
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
-  }, []);
+      };
+      load();
+
+      return () => {
+        active = false;
+      };
+    }, []),
+  );
 
   const handleToggleEnabled = useCallback(
     async (value: boolean) => {
@@ -151,19 +195,6 @@ export default function SettingsScreen() {
         reminderHour: h,
         reminderMinute: m,
       });
-      if (enabled) {
-        await rebuildAllReminders();
-      }
-    },
-    [enabled],
-  );
-
-  const handleOffsetToggle = useCallback(
-    async (id: number, newEnabled: boolean) => {
-      await reminderRepository.setReminderOffsetEnabled(id, newEnabled);
-      setOffsets((prev) =>
-        prev.map((o) => (o.id === id ? { ...o, enabled: newEnabled } : o)),
-      );
       if (enabled) {
         await rebuildAllReminders();
       }
@@ -218,7 +249,7 @@ export default function SettingsScreen() {
           { paddingBottom: insets.bottom + 32 },
         ]}
       >
-        {/* ─── NOTIFICATIONS ─── */}
+
         <View style={styles.section}>
           <AppText variant="label" color={Colors.textSecondary} style={styles.sectionTitle}>
             {t("settings.sectionNotifications")}
@@ -259,67 +290,81 @@ export default function SettingsScreen() {
                 />
               </Pressable>
 
-              <View style={styles.reminderRulesSection}>
-                <View style={styles.settingRow}>
-                  <AppText variant="body">{t("settings.reminderRules")}</AppText>
-                </View>
-
-                {offsets.map((offset) => (
-                  <View key={offset.id} style={styles.reminderRuleRow}>
-                    <AppText variant="body" style={{ flex: 1 }}>
-                      {formatOffsetLabel(offset.days)}
-                    </AppText>
-                    <View style={styles.reminderRuleActions}>
-                      <Switch
-                        value={offset.enabled}
-                        onValueChange={(value) =>
-                          handleOffsetToggle(offset.id, value)
-                        }
-                        trackColor={{
-                          false: Colors.border,
-                          true: withOpacity(Colors.primary, 0.3),
-                        }}
-                        thumbColor={
-                          offset.enabled
-                            ? Colors.primary
-                            : Colors.textSecondary
-                        }
-                      />
-                      <Pressable
-                        onPress={() => handleDeleteOffset(offset.id)}
-                        hitSlop={12}
-                        style={{ marginLeft: Spacing.md }}
-                      >
-                        <SymbolView
-                          name={{
-                            ios: "trash",
-                            android: "delete",
-                          }}
-                          size={16}
-                          tintColor={Colors.textSecondary}
-                        />
-                      </Pressable>
-                    </View>
-                  </View>
-                ))}
-
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.addReminderRow,
-                    pressed && styles.rowPressed,
-                  ]}
-                  onPress={() => router.push("/settings/add-reminder")}
-                >
+              <Pressable
+                style={({ pressed }) => [
+                  styles.settingRow,
+                  pressed && styles.rowPressed,
+                ]}
+                onPress={() => {
+                  setRulesExpanded((prev) => {
+                    const next = !prev;
+                    chevronRotation.value = withTiming(next ? 90 : 0, { duration: 200 });
+                    return next;
+                  });
+                }}
+              >
+                <AppText variant="body">{t("settings.reminderRules")}</AppText>
+                <Animated.View style={chevronStyle}>
                   <SymbolView
-                    name={{ ios: "plus.circle.fill", android: "add_circle" }}
-                    size={18}
-                    tintColor={Colors.primary}
+                    name={{ ios: "chevron.right", android: "chevron_right" }}
+                    size={14}
+                    tintColor={Colors.textSecondary}
                   />
-                  <AppText variant="body" color={Colors.primary} style={{ marginLeft: Spacing.sm }}>
-                    {t("settings.addReminder")}
-                  </AppText>
-                </Pressable>
-              </View>
+                </Animated.View>
+              </Pressable>
+
+              {rulesExpanded && (
+                <View style={styles.reminderRulesSection}>
+                  {offsets.filter((o) => o.enabled).length === 0 ? (
+                    <View style={styles.reminderRulesEmpty}>
+                      <AppText variant="caption" color={Colors.textSecondary} style={styles.reminderRulesEmptyText}>
+                        {t("settings.addReminder")}
+                      </AppText>
+                    </View>
+                  ) : (
+                    offsets
+                      .filter((o) => o.enabled)
+                      .map((offset) => (
+                        <View key={offset.id} style={styles.reminderRuleRow}>
+                          <AppText variant="body" style={{ flex: 1 }}>
+                            {formatOffsetLabel(offset.days, t)}
+                          </AppText>
+                          <Pressable
+                            onPress={() => handleDeleteOffset(offset.id)}
+                            hitSlop={12}
+                            style={styles.reminderRuleDelete}
+                          >
+                            <SymbolView
+                              name={{
+                                ios: "minus.circle.fill",
+                                android: "remove_circle",
+                              }}
+                              size={20}
+                              tintColor={Colors.error}
+                            />
+                          </Pressable>
+                        </View>
+                      ))
+                  )}
+
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.addReminderRow,
+                      pressed && styles.addReminderRowPressed,
+                    ]}
+                    onPress={() => router.push("/settings/add-reminder")}
+                  >
+                    <SymbolView
+                      name={{ ios: "plus.circle.fill", android: "add_circle" }}
+                      size={18}
+                      tintColor={Colors.primary}
+                    />
+                    <AppText variant="button" color={Colors.primary}>
+                      {t("settings.addReminder")}
+                    </AppText>
+                  </Pressable>
+                </View>
+              )}
             </>
           )}
 
@@ -337,7 +382,7 @@ export default function SettingsScreen() {
           )}
         </View>
 
-        {/* ─── AI ─── */}
+
         <View style={styles.section}>
           <AppText variant="label" color={Colors.textSecondary} style={styles.sectionTitle}>
             {t("settings.sectionAi")}
@@ -366,15 +411,34 @@ export default function SettingsScreen() {
                   : t("settings.notConfigured")}
               </AppText>
             </View>
-            <SymbolView
-              name={{ ios: "chevron.right", android: "chevron_right" }}
-              size={14}
-              tintColor={Colors.textSecondary}
-            />
+            <View style={styles.settingValue}>
+              <SymbolView
+                name={
+                  connectionStatus === "connected"
+                    ? { ios: "wifi", android: "wifi" }
+                    : connectionStatus === "checking"
+                      ? { ios: "wifi", android: "wifi" }
+                      : { ios: "wifi.slash", android: "wifi_off" }
+                }
+                size={18}
+                tintColor={
+                  connectionStatus === "connected"
+                    ? Colors.primary
+                    : connectionStatus === "checking"
+                      ? Colors.textSecondary
+                      : Colors.textSecondary
+                }
+              />
+              <SymbolView
+                name={{ ios: "chevron.right", android: "chevron_right" }}
+                size={14}
+                tintColor={Colors.textSecondary}
+              />
+            </View>
           </Pressable>
         </View>
 
-        {/* ─── GENERAL ─── */}
+
         <View style={styles.section}>
           <AppText variant="label" color={Colors.textSecondary} style={styles.sectionTitle}>
             {t("settings.sectionGeneral")}
@@ -450,26 +514,48 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
   },
   reminderRulesSection: {
-    marginTop: Spacing.xs,
+    marginTop: Spacing.sm,
+    gap: Spacing.xs,
+  },
+  reminderRulesEmpty: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    paddingVertical: Spacing.sm,
+    paddingLeft: Spacing.lg,
+    paddingRight: Spacing.xs,
+  },
+  reminderRulesEmptyText: {
+    flex: 1,
   },
   reminderRuleRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingVertical: Spacing.sm,
-    paddingLeft: Spacing.xs,
+    paddingVertical: Spacing.md,
+    paddingLeft: Spacing.lg,
     paddingRight: Spacing.xs,
     gap: Spacing.md,
   },
-  reminderRuleActions: {
-    flexDirection: "row",
-    alignItems: "center",
+  reminderRuleDelete: {
+    padding: Spacing.xs,
   },
   addReminderRow: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
+    gap: Spacing.sm,
+    marginTop: Spacing.sm,
+    marginHorizontal: Spacing.xs,
     paddingVertical: Spacing.md,
-    paddingLeft: Spacing.xs,
+    borderRadius: BorderRadius.md,
+    borderCurve: "continuous",
+    borderWidth: 1.5,
+    borderColor: withOpacity(Colors.primary, 0.4),
+    backgroundColor: withOpacity(Colors.primary, 0.06),
+  },
+  addReminderRowPressed: {
+    opacity: 0.7,
   },
   permissionBanner: {
     flexDirection: "row",

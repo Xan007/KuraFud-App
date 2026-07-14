@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, StyleSheet, View } from "react-native";
+import { Alert, StyleSheet, View, Vibration } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useFocusEffect } from "expo-router";
 import Animated, { FadeIn } from "react-native-reanimated";
@@ -9,16 +9,20 @@ import {
   type CameraRef,
 } from "react-native-vision-camera";
 import { useBarcodeScannerOutput } from "react-native-vision-camera-barcode-scanner";
-import { Colors } from "@/constants/theme";
 import { AppText } from "@/components/ui/Text";
 import { Button } from "@/components/ui/Button";
 import { DateTimePickerSheet } from "@/components/DateTimePickerSheet";
 import { lookupProduct } from "services/productService";
 import { useAutoDateScanner } from "@/hooks/useAutoDateScanner";
+import { useDateCountdown } from "@/hooks/useDateCountdown";
+import { useCameraControls } from "@/hooks/useCameraControls";
+import { useScanSessionStore } from "@/hooks/useScanSessionStore";
 import { computeRoiRect } from "@/services/ocr/roi";
 import type { Candidate } from "@/services/ocr/autoScanner";
+import { createVoteBox } from "@/services/ocr/voting";
 import { emptyProduct } from "types";
 import { formatDateString, parseDateString } from "@/helpers/format";
+import { isValidBarcode } from "@/helpers/barcode";
 import CameraSection from "@/components/CameraSection";
 import type { CameraLayout } from "@/components/CameraSection";
 import ScanSessionSheet, {
@@ -29,7 +33,6 @@ import {
   productRepository,
   inventoryRepository,
   notificationSettingsRepository,
-  scanSessionRepository,
 } from "@/db/repositories";
 import { rebuildAllReminders } from "@/services/notifications";
 import { showToast } from "@/helpers/toast";
@@ -39,15 +42,38 @@ type GuideRect = { x: number; y: number; width: number; height: number };
 
 const BARCODE_COOLDOWN_MS = 6000;
 const GLOBAL_BARCODE_DEBOUNCE_MS = 1200;
+const DATE_DUPLICATE_COOLDOWN_MS = 3000;
+const BARCODE_VOTE_REQUIRED = 1.5;
+const BARCODE_VOTE_LEAD_MARGIN = 0.5;
+
+const FAR_FUTURE_YEARS = 4;
 
 export default function BarcodeScannerScreen() {
   const { t } = useAppTranslation();
-  const [cameraPosition, setCameraPosition] = useState<"back" | "front">(
-    "back",
-  );
-  const [torch, setTorch] = useState<"off" | "on">("off");
-  const [zoomLabel, setZoomLabel] = useState("1.0x");
-  const [sessionItems, setSessionItems] = useState<SessionItem[]>([]);
+  const insets = useSafeAreaInsets();
+
+  const cameraRef = useRef<CameraRef>(null);
+  const {
+    cameraPosition,
+    torch,
+    zoomLabel,
+    toggleTorch,
+    toggleCamera,
+    handleZoomIn,
+    handleZoomOut,
+  } = useCameraControls({ cameraRef });
+
+  const {
+    items: sessionItems,
+    setItems: setSessionItems,
+    loadPersisted,
+    nextKey,
+    persistNewItem,
+    persistUpdate,
+    persistDelete,
+    clearAll: clearPersistedSession,
+  } = useScanSessionStore();
+
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [pendingDate, setPendingDate] = useState(new Date());
   const [editingItemKey, setEditingItemKey] = useState<string | null>(null);
@@ -55,128 +81,131 @@ export default function BarcodeScannerScreen() {
     null,
   );
   const [sessionVersionKey, setSessionVersionKey] = useState(0);
+  const [finalizing, setFinalizing] = useState(false);
+  const [mode, setMode] = useState<"barcode" | "date">("barcode");
+  const [unitCount, setUnitCount] = useState(0);
 
-  const cameraRef = useRef<CameraRef>(null);
+  const finalizingRef = useRef(false);
   const isScanningRef = useRef(true);
   const lastBarcodeTimeRef = useRef(0);
-  const lastZoomRef = useRef("1.0x");
   const sessionItemsRef = useRef(sessionItems);
   sessionItemsRef.current = sessionItems;
   const guideRectRef = useRef<GuideRect | null>(null);
   const cameraLayoutRef = useRef<CameraLayout | null>(null);
   const lastScanTimestampsRef = useRef<Map<string, number>>(new Map());
-  const keyCounterRef = useRef(0);
-  const keyToDbIdRef = useRef<Map<string, number>>(new Map());
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
+  const barcodeVoteBoxRef = useRef(
+    createVoteBox({
+      requiredVotes: BARCODE_VOTE_REQUIRED,
+      leadMargin: BARCODE_VOTE_LEAD_MARGIN,
+    }),
+  );
+
+  const countdown = useDateCountdown({
+    onTimeout: () => {
+      setMode("barcode");
+      barcodeVoteBoxRef.current.reset();
+      setUnitCount(0);
+      lastAcceptedDateRef.current = null;
+    },
+  });
+
+  const lastAcceptedDateRef = useRef<string | null>(null);
+  const activeScanTargetKeyRef = useRef<string | null>(null);
+  activeScanTargetKeyRef.current = activeScanTargetKey;
+  const isUserSelectedRef = useRef(false);
+  const lastAcceptedDateTimeRef = useRef(0);
 
   const device = useCameraDevice(cameraPosition);
   const { hasPermission, requestPermission } = useCameraPermission();
 
-  // Load persisted session on mount
-  useEffect(() => {
-    scanSessionRepository.loadSession().then((rows) => {
-      if (rows.length === 0) return;
-      const map = new Map<string, number>();
-      const items: SessionItem[] = rows.map((row) => {
-        const key = String(row.id);
-        map.set(key, row.id);
-        return {
-          key,
-          barcode: row.barcode,
-          product: row.productJson
-            ? JSON.parse(row.productJson)
-            : { ...emptyProduct, barcode: row.barcode },
-          date: row.date ?? undefined,
-          datePhotoUri: row.datePhotoUri ?? undefined,
-        };
-      });
-      keyToDbIdRef.current = map;
-      setSessionItems(items);
-      const maxKey = Math.max(...items.map((i) => parseInt(i.key, 10)), 0);
-      keyCounterRef.current = maxKey + 1;
-    });
-  }, []);
 
-  const scannerTargetKey = useMemo(
-    () =>
-      activeScanTargetKey ??
-      (sessionItems.length > 0
-        ? sessionItems[sessionItems.length - 1].key
-        : null),
-    [activeScanTargetKey, sessionItems],
-  );
+  useEffect(() => {
+    loadPersisted();
+  }, [loadPersisted]);
+
+  const scannerTargetKey = useMemo(() => {
+    if (activeScanTargetKey) return activeScanTargetKey;
+    for (let i = sessionItems.length - 1; i >= 0; i--) {
+      if (!sessionItems[i].date) return sessionItems[i].key;
+    }
+    return null;
+  }, [activeScanTargetKey, sessionItems]);
 
   const shouldRunScanner = sessionItems.length > 0;
 
   useFocusEffect(
     useCallback(() => {
       isScanningRef.current = true;
+      lastBarcodeTimeRef.current = Date.now();
       return () => {
         isScanningRef.current = false;
       };
     }, []),
   );
 
-  function isValidBarcode(code: string): boolean {
-    if (!/^\d+$/.test(code)) return false;
-    return [6, 8, 12, 13].includes(code.length);
-  }
-
   const handleBarcodeScanned = useCallback(
-    (barcodes: { rawValue?: string }[]) => {
-      if (!isScanningRef.current) return;
+    async (barcodes: any[]) => {
+      if (!isScanningRef.current || modeRef.current !== "barcode") {
+        return;
+      }
+      if (!barcodes || barcodes.length === 0) return;
+
       const code = barcodes[0]?.rawValue;
       if (!code || !isValidBarcode(code)) return;
 
       const now = Date.now();
       if (now - lastBarcodeTimeRef.current < GLOBAL_BARCODE_DEBOUNCE_MS) return;
       lastBarcodeTimeRef.current = now;
-      const lastTime = lastScanTimestampsRef.current.get(code);
-      if (lastTime != null && now - lastTime < BARCODE_COOLDOWN_MS) return;
-      lastScanTimestampsRef.current.set(code, now);
 
-      const key = String(keyCounterRef.current++);
+      const voteResult = barcodeVoteBoxRef.current.add(code);
+      if (!voteResult.accepted) return;
+
+      const acceptedCode = voteResult.accepted;
+      const lastTime = lastScanTimestampsRef.current.get(acceptedCode);
+      if (lastTime != null && now - lastTime < BARCODE_COOLDOWN_MS) return;
+      lastScanTimestampsRef.current.set(acceptedCode, now);
+
+      barcodeVoteBoxRef.current.reset();
+      Vibration.vibrate(100);
+
+      const key = nextKey();
       const newItem: SessionItem = {
         key,
-        barcode: code,
-        product: { ...emptyProduct, barcode: code },
+        barcode: acceptedCode,
+        product: { ...emptyProduct, barcode: acceptedCode },
       };
 
       setSessionItems((prev) => [...prev, newItem]);
       setActiveScanTargetKey(key);
+      isUserSelectedRef.current = false;
+      setMode("date");
+      setUnitCount(0);
+      countdown.bumpActivity();
 
-      // Persist to scan_session — key is stable, DB id stored in map
-      scanSessionRepository
-        .insertItem({
-          barcode: code,
-          productJson: JSON.stringify(newItem.product),
-          createdAt: new Date(),
-        })
-        .then((dbId) => {
-          keyToDbIdRef.current.set(key, dbId);
-          return lookupProduct(code);
-        })
-        .then((p) => {
-          if (p) {
-            setSessionItems((prev) =>
-              prev.map((item) =>
-                item.key === key ? { ...item, product: p } : item,
-              ),
-            );
-            const dbId = keyToDbIdRef.current.get(key);
-            if (dbId != null) {
-              scanSessionRepository.updateItem(dbId, {
-                productJson: JSON.stringify(p),
-              });
-            }
-          } else {
-            showToast(t("scanner.productNotFound"));
-          }
-        })
-        .catch(() => {
+      try {
+        await persistNewItem(newItem);
+        const result = await lookupProduct(acceptedCode);
+        if (result.kind === "found") {
+          const p = result.product;
+          setSessionItems((prev) =>
+            prev.map((item) =>
+              item.key === key ? { ...item, product: p } : item,
+            ),
+          );
+          await persistUpdate(key, { productJson: JSON.stringify(p) });
+        } else if (result.kind === "offline") {
           showToast(t("scanner.connectionError"));
-        });
+        } else {
+          showToast(t("scanner.productNotFound"));
+        }
+      } catch {
+        showToast(t("scanner.connectionError"));
+      }
     },
-    [t],
+
+    [t, nextKey, persistNewItem, persistUpdate],
   );
 
   const handleError = useCallback((error: Error) => {
@@ -194,82 +223,6 @@ export default function BarcodeScannerScreen() {
 
   const scannerOutput = useBarcodeScannerOutput(barcodeOptions);
 
-  const insets = useSafeAreaInsets();
-
-  const toggleTorch = useCallback(() => {
-    setTorch((prev) => (prev === "off" ? "on" : "off"));
-  }, []);
-
-  const toggleCamera = useCallback(() => {
-    setCameraPosition((prev) => (prev === "back" ? "front" : "back"));
-    setTorch("off");
-    setZoomLabel("1.0x");
-    lastZoomRef.current = "1.0x";
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    const sync = () => {
-      const ctrl = cameraRef.current?.controller;
-      if (ctrl?.isConnected) {
-        ctrl.setTorchMode(torch).catch(() => {});
-        return true;
-      }
-      return false;
-    };
-    if (sync()) return;
-    const id = setInterval(() => {
-      if (cancelled || sync()) clearInterval(id);
-    }, 150);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, [torch, cameraPosition]);
-
-  const getZoom = useCallback(() => {
-    try {
-      return cameraRef.current?.controller?.zoom ?? 1;
-    } catch {
-      return 1;
-    }
-  }, []);
-
-  const handleZoomIn = useCallback(() => {
-    const ctrl = cameraRef.current?.controller;
-    if (!ctrl?.isConnected) return;
-    const next = Math.min(ctrl.maxZoom, +(getZoom() + 0.5).toFixed(1));
-    ctrl.startZoomAnimation(next, 2).catch(() => {});
-    const lbl = next.toFixed(1) + "x";
-    lastZoomRef.current = lbl;
-    setZoomLabel(lbl);
-  }, [getZoom]);
-
-  const handleZoomOut = useCallback(() => {
-    const ctrl = cameraRef.current?.controller;
-    if (!ctrl?.isConnected) return;
-    const next = Math.max(ctrl.minZoom, +(getZoom() - 0.5).toFixed(1));
-    ctrl.startZoomAnimation(next, 2).catch(() => {});
-    const lbl = next.toFixed(1) + "x";
-    lastZoomRef.current = lbl;
-    setZoomLabel(lbl);
-  }, [getZoom]);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const ctrl = cameraRef.current?.controller;
-      if (ctrl?.isConnected) {
-        const raw = (ctrl as any).displayableZoomFactor ?? ctrl.zoom;
-        const z = Number(raw).toFixed(1) + "x";
-        if (z !== lastZoomRef.current) {
-          lastZoomRef.current = z;
-          setZoomLabel(z);
-        }
-      }
-    }, 500);
-    return () => clearInterval(interval);
-  }, []);
-
   const handleCameraLayout = useCallback((layout: CameraLayout) => {
     cameraLayoutRef.current = layout;
   }, []);
@@ -286,7 +239,6 @@ export default function BarcodeScannerScreen() {
 
       const camLayout = cameraLayoutRef.current;
       const guide = guideRectRef.current;
-      let ocrPath = "";
 
       if (camLayout && guide && snapshot.width > 0 && snapshot.height > 0) {
         const roi = computeRoiRect({
@@ -302,13 +254,13 @@ export default function BarcodeScannerScreen() {
           const ey = Math.min(snapshot.height, Math.ceil(roi.y + roi.height));
           if (ex - sx > 8 && ey - sy > 8) {
             const cropped = snapshot.crop(sx, sy, ex, ey);
-            ocrPath = await cropped.saveToTemporaryFileAsync("jpg", 60);
+            const ocrPath = await cropped.saveToTemporaryFileAsync("jpg", 60);
             return { ocrPath, photoPath: ocrPath };
           }
         }
       }
 
-      ocrPath = await snapshot.saveToTemporaryFileAsync("jpg", 60);
+      const ocrPath = await snapshot.saveToTemporaryFileAsync("jpg", 60);
       return { ocrPath, photoPath: ocrPath };
     } catch (e) {
       console.warn("captureCandidate error:", e);
@@ -321,39 +273,96 @@ export default function BarcodeScannerScreen() {
 
   const handleDateAccepted = useCallback(
     (date: string, photoUri: string) => {
-      const [day, month, year] = date.split("/").map(Number);
+      const year = Number(date.split("/")[2]);
       const currentYear = new Date().getFullYear();
-      const maxYear = currentYear + 4;
-
-      if (year > maxYear) {
+      if (year > currentYear + FAR_FUTURE_YEARS) {
         showToast(t("scanner.dateFarInFuture", { year }));
       }
 
       const targetKey = scannerTargetKeyRef.current;
       if (!targetKey) return;
 
-      setSessionItems((prev) =>
-        prev.map((item) =>
-          item.key === targetKey
-            ? { ...item, date, datePhotoUri: photoUri }
-            : item,
-        ),
-      );
+      const targetItem = sessionItemsRef.current.find((i) => i.key === targetKey);
+      if (!targetItem) return;
 
-      const dbId = keyToDbIdRef.current.get(targetKey);
-      if (dbId != null) {
-        scanSessionRepository.updateItem(dbId, {
+      countdown.bumpActivity();
+      lastAcceptedDateRef.current = date;
+      const acceptedNow = Date.now();
+
+      const shouldUpdate = isUserSelectedRef.current;
+
+      if (targetItem.date && !shouldUpdate) {
+        const timeSinceLastAccepted = acceptedNow - lastAcceptedDateTimeRef.current;
+        const isSameDateRecently =
+          lastAcceptedDateRef.current === date &&
+          timeSinceLastAccepted < DATE_DUPLICATE_COOLDOWN_MS;
+
+        if (isSameDateRecently) return;
+
+        const key = nextKey();
+        const clonedItem: SessionItem = {
+          key,
+          barcode: targetItem.barcode,
+          product: targetItem.product,
           date,
           datePhotoUri: photoUri,
-        });
+        };
+
+        setSessionItems((prev) => [...prev, clonedItem]);
+        setUnitCount((prev) => prev + 1);
+
+        persistNewItem(clonedItem).catch(() => {});
+
+        Vibration.vibrate(100);
+        showToast(t("scanner.unitAdded", { count: unitCount + 1, date }));
+      } else {
+        setSessionItems((prev) =>
+          prev.map((item) =>
+            item.key === targetKey
+              ? { ...item, date, datePhotoUri: photoUri }
+              : item,
+          ),
+        );
+        setUnitCount(1);
+
+        persistUpdate(targetKey, { date, datePhotoUri: photoUri }).catch(() => {});
+
+        Vibration.vibrate(100);
       }
+
+      lastAcceptedDateTimeRef.current = acceptedNow;
     },
-    [t],
+    [t, unitCount, nextKey, persistNewItem, persistUpdate, countdown],
   );
 
   const handleDateExhausted = useCallback(() => {
     showToast(t("scanner.dateNotDetected"));
   }, [t]);
+
+  const handleNextProduct = useCallback(() => {
+    setMode("barcode");
+    barcodeVoteBoxRef.current.reset();
+    setUnitCount(0);
+    lastAcceptedDateRef.current = null;
+    countdown.setActive(false);
+  }, [countdown]);
+
+  const handleNoDate = useCallback(() => {
+    handleNextProduct();
+  }, [handleNextProduct]);
+
+  useEffect(() => {
+    countdown.setActive(mode === "date");
+  }, [mode, countdown]);
+
+  const handleOCRProgress = useCallback(
+    (p: any) => {
+      if (p?.leader || p?.reads) {
+        countdown.bumpActivity();
+      }
+    },
+    [countdown],
+  );
 
   const {
     start: startAutoScan,
@@ -363,55 +372,78 @@ export default function BarcodeScannerScreen() {
     captureCandidate,
     onAccepted: handleDateAccepted,
     onExhausted: handleDateExhausted,
+    onProgress: handleOCRProgress,
     continuous: true,
   });
 
-  const outputs = useMemo(() => [scannerOutput], [scannerOutput]);
+  const outputs = useMemo(
+    () => (mode === "barcode" && isScanningRef.current ? [scannerOutput] : []),
+    [scannerOutput, mode],
+  );
 
   useEffect(() => {
-    if (shouldRunScanner) {
+    if (shouldRunScanner && mode === "date") {
       startAutoScan();
       return () => stopAutoScan();
     }
-  }, [shouldRunScanner, startAutoScan, stopAutoScan]);
+  }, [shouldRunScanner, mode, startAutoScan, stopAutoScan]);
 
   const prevTargetRef = useRef(scannerTargetKey);
   useEffect(() => {
     if (shouldRunScanner && scannerTargetKey !== prevTargetRef.current) {
       prevTargetRef.current = scannerTargetKey;
-      stopAutoScan();
-      startAutoScan();
+      if (scannerTargetKey) {
+        stopAutoScan();
+        startAutoScan();
+      }
     }
   }, [scannerTargetKey, shouldRunScanner, startAutoScan, stopAutoScan]);
 
   const handleFinalize = useCallback(async () => {
+    if (finalizingRef.current) return;
+    finalizingRef.current = true;
+    setFinalizing(true);
+
     try {
       const items = sessionItemsRef.current;
 
-      for (const item of items) {
-        const p = item.product;
-        await productRepository.upsertProduct({
-          barcode: p.barcode,
-          name: p.name,
-          brand: p.brand,
-          quantity: p.quantity,
-          ingredients: p.ingredients,
-          imageFrontUrl: p.imageFrontUrl,
-          categories: p.categories,
-          nutriscore: p.nutriscore,
-          dataJson: JSON.stringify(p),
-          createdAt: new Date(),
-        });
-
-        if (item.date) {
-          await inventoryRepository.addInventoryItem({
-            barcode: item.product.barcode,
-            expirationDate: item.date,
-            datePhotoUri: item.datePhotoUri ?? null,
+      await Promise.all(
+        items.map(async (item) => {
+          const p = item.product;
+          await productRepository.upsertProduct({
+            barcode: p.barcode,
+            name: p.name,
+            brand: p.brand,
+            quantity: p.quantity,
+            ingredients: p.ingredients,
+            imageFrontUrl: p.imageFrontUrl,
+            categories: p.categories,
+            nutriscore: p.nutriscore,
+            dataJson: JSON.stringify(p),
             createdAt: new Date(),
           });
-        }
-      }
+
+          if (item.date) {
+            await inventoryRepository.addInventoryItem({
+              barcode: item.product.barcode,
+              expirationDate: item.date,
+              datePhotoUri: item.datePhotoUri ?? null,
+              createdAt: new Date(),
+            });
+          }
+        }),
+      );
+
+      await clearPersistedSession();
+
+      setSessionItems([]);
+      setMode("barcode");
+      setUnitCount(0);
+      barcodeVoteBoxRef.current.reset();
+      lastAcceptedDateRef.current = null;
+      countdown.setActive(false);
+      isScanningRef.current = true;
+      showToast(t("scanner.productSaved"));
 
       try {
         const settings =
@@ -420,20 +452,16 @@ export default function BarcodeScannerScreen() {
           await rebuildAllReminders();
         }
       } catch {
-        // Non-critical — don't block saving
+
       }
-
-      await scanSessionRepository.clearSession();
-      keyToDbIdRef.current.clear();
-
-      showToast(t("scanner.productSaved"));
-      setSessionItems([]);
-      isScanningRef.current = true;
     } catch (e) {
       console.warn("handleFinalize error:", e);
       showToast(t("messages.errorSaving"));
+    } finally {
+      finalizingRef.current = false;
+      setFinalizing(false);
     }
-  }, [t]);
+  }, [t, clearPersistedSession, countdown]);
 
   const handleCancelSession = useCallback(() => {
     const count = sessionItemsRef.current.length;
@@ -452,28 +480,33 @@ export default function BarcodeScannerScreen() {
           text: t("scanner.cancelAll"),
           style: "destructive",
           onPress: async () => {
-            await scanSessionRepository.clearSession();
-            keyToDbIdRef.current.clear();
+            await clearPersistedSession();
             setSessionItems([]);
+            setMode("barcode");
+            setUnitCount(0);
+            barcodeVoteBoxRef.current.reset();
+            lastAcceptedDateRef.current = null;
+            countdown.setActive(false);
             isScanningRef.current = true;
           },
         },
       ],
     );
-  }, [t]);
+  }, [t, clearPersistedSession, countdown]);
 
   const handleRemoveItem = useCallback((key: string) => {
-    const dbId = keyToDbIdRef.current.get(key);
-    if (dbId != null) {
-      scanSessionRepository.deleteItem(dbId);
-      keyToDbIdRef.current.delete(key);
-    }
+    persistDelete(key).catch(() => {});
     setActiveScanTargetKey((prev) => (prev === key ? null : prev));
+    prevTargetRef.current = null;
     setSessionItems((prev) => prev.filter((item) => item.key !== key));
-  }, []);
+  }, [persistDelete]);
 
   const handleScanDate = useCallback((key: string) => {
-    setActiveScanTargetKey((prev) => (prev === key ? null : key));
+    setActiveScanTargetKey((prev) => {
+      const newKey = prev === key ? null : key;
+      isUserSelectedRef.current = newKey !== null;
+      return newKey;
+    });
   }, []);
 
   const handleEditDate = useCallback((key: string) => {
@@ -498,23 +531,20 @@ export default function BarcodeScannerScreen() {
 
   const handleDatePickerConfirm = useCallback(() => {
     const formatted = formatDateString(pendingDate);
+
     if (editingItemKey) {
       setSessionItems((prev) =>
         prev.map((item) =>
           item.key === editingItemKey ? { ...item, date: formatted } : item,
         ),
       );
-      const dbId = keyToDbIdRef.current.get(editingItemKey);
-      if (dbId != null) {
-        scanSessionRepository.updateItem(dbId, {
-          date: formatted,
-        });
-      }
+
+      persistUpdate(editingItemKey, { date: formatted }).catch(() => {});
       setActiveScanTargetKey((prev) => (prev === editingItemKey ? null : prev));
     }
     setShowDatePicker(false);
     setEditingItemKey(null);
-  }, [pendingDate, editingItemKey]);
+  }, [pendingDate, editingItemKey, persistUpdate]);
 
   const handleDatePickerCancel = useCallback(() => {
     setShowDatePicker(false);
@@ -571,7 +601,7 @@ export default function BarcodeScannerScreen() {
         onCameraLayout={handleCameraLayout}
       />
 
-      {shouldRunScanner && (
+      {shouldRunScanner && mode === "date" && (
         <DateScannerOverlay
           onLayoutGuide={handleGuideLayout}
           statusText={
@@ -579,16 +609,40 @@ export default function BarcodeScannerScreen() {
               ? t("scanner.confirmingDate", { date: progress.leader })
               : t("scanner.searchingDate")
           }
+          countdownSeconds={countdown.countdownSeconds}
         />
+      )}
+
+      {mode === "date" && shouldRunScanner && (
+        <View style={styles.datePhaseControls}>
+          <Button
+            variant="primary"
+            size="sm"
+            onPress={handleNextProduct}
+            style={styles.controlBtn}
+          >
+            {t("scanner.nextProduct")}
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onPress={handleNoDate}
+            style={styles.controlBtn}
+          >
+            {t("scanner.noDate")}
+          </Button>
+        </View>
       )}
 
       {sessionItems.length > 0 && (
         <ScanSessionSheet
           key={sessionVersionKey}
           items={sessionItems}
+          selectedKey={scannerTargetKey}
+          finalizing={finalizing}
+          onSelectItem={handleScanDate}
           onRemoveItem={handleRemoveItem}
           onEditDate={handleEditDate}
-          onScanDate={handleScanDate}
           onFinalize={handleFinalize}
           onCancel={handleCancelSession}
         />
@@ -616,5 +670,15 @@ const styles = StyleSheet.create({
   msg: {
     marginBottom: 16,
     textAlign: "center",
+  },
+  datePhaseControls: {
+    position: "absolute",
+    bottom: 20,
+    left: 16,
+    right: 16,
+    gap: 8,
+  },
+  controlBtn: {
+    width: "100%",
   },
 });

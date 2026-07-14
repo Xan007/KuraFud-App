@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "expo-router";
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -56,9 +58,11 @@ export default function AISettingsScreen() {
   );
 
   useEffect(() => {
+    let mounted = true;
     const load = async () => {
       try {
         const settings = await aiSettingsRepository.getAISettings();
+        if (!mounted) return;
         setProviderId(settings.provider);
         setModel(settings.model);
         setMaxTokens(settings.maxTokens?.toString() || "");
@@ -67,18 +71,23 @@ export default function AISettingsScreen() {
 
         if (settings.provider) {
           const key = await getAPIKey(settings.provider);
+          if (!mounted) return;
           if (key) {
             setSavedApiKey(key);
           }
         }
       } catch (e) {
+        if (!mounted) return;
         console.error("Error loading AI settings:", e);
         showToast("Error");
       } finally {
-        setLoading(false);
+        if (mounted) setLoading(false);
       }
     };
     load();
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   const handleTestConnection = useCallback(async () => {
@@ -168,14 +177,20 @@ export default function AISettingsScreen() {
         onBack={() => router.back()}
       />
 
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={[
-          styles.scrollContent,
-          { paddingBottom: insets.bottom + 32 },
-        ]}
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior="padding"
+        keyboardVerticalOffset={Platform.OS === "ios" ? insets.top + 44 : 0}
       >
-        {/* ─── PROVEEDOR ─── */}
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingBottom: insets.bottom + 32 },
+          ]}
+          keyboardShouldPersistTaps="handled"
+        >
+
         <View style={styles.section}>
           <AppText variant="label" color={Colors.textSecondary} style={styles.sectionTitle}>
             {t("aiSettings.provider")}
@@ -240,7 +255,7 @@ export default function AISettingsScreen() {
           )}
         </View>
 
-        {/* ─── MODELO ─── */}
+
         {currentProvider && (
           <View style={styles.section}>
             <AppText variant="label" color={Colors.textSecondary} style={styles.sectionTitle}>
@@ -285,7 +300,7 @@ export default function AISettingsScreen() {
           </View>
         )}
 
-        {/* ─── CLAVE API ─── */}
+
         <View style={styles.section}>
           <AppText variant="label" color={Colors.textSecondary} style={styles.sectionTitle}>
             {t("aiSettings.apiKey")}
@@ -318,7 +333,7 @@ export default function AISettingsScreen() {
           </View>
         </View>
 
-        {/* ─── TOKENS ─── */}
+
         {currentProvider &&
           currentProvider.models.some((m) => m.supportsMaxTokens) && (
             <View style={styles.section}>
@@ -338,7 +353,7 @@ export default function AISettingsScreen() {
             </View>
           )}
 
-        {/* ─── CUSTOM API URL ─── */}
+
         {currentProvider?.id === "custom" && (
           <View style={styles.section}>
             <AppText variant="label" color={Colors.textSecondary} style={styles.sectionTitle}>
@@ -359,7 +374,7 @@ export default function AISettingsScreen() {
           </View>
         )}
 
-        {/* ─── TEST CONNECTION ─── */}
+
         <Button
           variant="outline"
           size="md"
@@ -376,7 +391,7 @@ export default function AISettingsScreen() {
           />
         )}
 
-        {/* ─── INSTRUCCIONES ─── */}
+
         <View style={styles.section}>
           <AppText variant="label" color={Colors.textSecondary} style={styles.sectionTitle}>
             {t("aiSettings.customInstructions")}
@@ -402,7 +417,7 @@ export default function AISettingsScreen() {
           />
         </View>
 
-        {/* ─── ACTION BUTTONS ─── */}
+
         <View style={styles.buttonRow}>
           <Button
             variant="secondary"
@@ -424,21 +439,8 @@ export default function AISettingsScreen() {
           </Button>
         </View>
 
-        {providerId && (
-          <Pressable
-            onPress={handleClear}
-            disabled={saving || testing}
-            style={({ pressed }) => [
-              styles.clearButton,
-              pressed && { opacity: 0.6 },
-            ]}
-          >
-            <AppText color={Colors.error} variant="body">
-              {t("aiSettings.noProvider")}
-            </AppText>
-          </Pressable>
-        )}
       </ScrollView>
+      </KeyboardAvoidingView>
     </View>
   );
 }
