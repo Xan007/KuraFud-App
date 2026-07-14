@@ -2,11 +2,7 @@ import { and, eq, gte, lte, isNull } from "drizzle-orm";
 import { database } from "../client";
 import { inventory } from "../schema";
 import type { InventoryItem } from "../schema";
-
-function parseDateString(dateStr: string): Date {
-  const [day, month, year] = dateStr.split("/").map(Number);
-  return new Date(Date.UTC(year, month - 1, day));
-}
+import { parseDateString } from "@/helpers/format";
 
 export class InventoryRepository {
   async addInventoryItem(
@@ -32,7 +28,7 @@ export class InventoryRepository {
     const future = new Date();
     future.setDate(future.getDate() + days);
 
-    // SQL string comparison of DD/MM/YYYY doesn't work across month/year boundaries
+
     const allActive = await database.query.inventory.findMany({
       where: isNull(inventory.consumedAt),
       with: { product: true },

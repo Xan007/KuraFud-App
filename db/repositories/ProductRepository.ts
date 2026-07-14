@@ -1,4 +1,4 @@
-import { eq, isNull } from "drizzle-orm";
+import { eq, inArray, isNull } from "drizzle-orm";
 import { database } from "../client";
 import { products, inventory } from "../schema";
 import type { Product, ProductWithInventory } from "../schema";
@@ -31,7 +31,7 @@ export class ProductRepository {
       try {
         return JSON.parse(row.dataJson) as ProductInfo;
       } catch {
-        // Fall through to basic construction
+
       }
     }
 
@@ -50,6 +50,28 @@ export class ProductRepository {
 
   async getAllProducts(): Promise<ProductWithInventory[]> {
     return database.query.products.findMany({
+      with: {
+        inventory: {
+          where: isNull(inventory.consumedAt),
+          orderBy: (items, { asc }) => [asc(items.expirationDate)],
+        },
+      },
+      orderBy: (products, { desc }) => [desc(products.createdAt)],
+    }) as Promise<ProductWithInventory[]>;
+  }
+
+
+  async getOwnedProducts(): Promise<ProductWithInventory[]> {
+    const ownedBarcodes = await database
+      .select({ barcode: inventory.barcode })
+      .from(inventory)
+      .groupBy(inventory.barcode)
+      .then((rows) => rows.map((r) => r.barcode));
+
+    if (ownedBarcodes.length === 0) return [];
+
+    return database.query.products.findMany({
+      where: inArray(products.barcode, ownedBarcodes),
       with: {
         inventory: {
           where: isNull(inventory.consumedAt),

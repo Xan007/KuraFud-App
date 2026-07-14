@@ -23,10 +23,22 @@ export type Nutriments = {
   sodium100g: number | null;
 };
 
+
+export type LocalizedInfo = {
+
+  lang: string;
+
+  name: string;
+
+  ingredients: string;
+};
+
 export type ProductInfo = {
   barcode: string;
   name: string;
   brand: string;
+
+  genericName: string;
   quantity: string;
   ingredients: string;
   imageFrontUrl: string;
@@ -37,18 +49,43 @@ export type ProductInfo = {
   categories: string;
   nutriscore: string;
   nutriments: Nutriments;
-  /** Human-readable serving size, e.g. "100 g" or "1 cookie (30 g)". */
+
   servingSize: string;
-  /** Numeric serving quantity in grams. */
+
   servingQuantity: number | null;
-  /** Number of servings per container, when available. */
+
   servingsPerContainer: string | null;
+
+  ecoscore: string;
+
+  novaGroup: number | null;
+
+  allergens: string;
+
+  traces: string;
+
+  labels: string;
+
+  conservationConditions: string;
+
+  completeness: number | null;
+
+  uniqueScansN: number | null;
+
+  sourceLanguage: string;
+
+  availableLanguages: string[];
+
+  localizedNames: Record<string, string>;
+
+  localizedIngredients: Record<string, string>;
 };
 
 export const emptyProduct: ProductInfo = {
   barcode: "",
   name: "",
   brand: "",
+  genericName: "",
   quantity: "",
   ingredients: "",
   imageFrontUrl: "",
@@ -75,4 +112,42 @@ export const emptyProduct: ProductInfo = {
   servingSize: "",
   servingQuantity: null,
   servingsPerContainer: null,
+  ecoscore: "",
+  novaGroup: null,
+  allergens: "",
+  traces: "",
+  labels: "",
+  conservationConditions: "",
+  completeness: null,
+  uniqueScansN: null,
+  sourceLanguage: "en",
+  availableLanguages: [],
+  localizedNames: {},
+  localizedIngredients: {},
 };
+
+
+export type ProductSearchHit = {
+  barcode: string;
+  name: string;
+  brand: string;
+  quantity: string;
+  imageUrl: string;
+  nutriscore: string;
+  ecoscore: string;
+  novaGroup: number | null;
+
+  uniqueScansN: number | null;
+  categories: string;
+};
+
+
+export type LookupResult =
+  | { kind: "found"; product: ProductInfo }
+  | { kind: "not_found" }
+  | { kind: "offline" };
+
+
+export type SearchResult =
+  | { kind: "ok"; hits: ProductSearchHit[]; totalCount: number | null }
+  | { kind: "offline" };

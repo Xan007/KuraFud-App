@@ -1,31 +1,29 @@
-import type { ProductInfo } from "types";
+import type {
+  ProductInfo,
+  LookupResult,
+  ProductSearchHit,
+  SearchResult,
+} from "types";
 import { productRepository } from "@/db/repositories";
 import { OpenFoodFactsAdapter } from "@/services/adapters/openFoodFacts";
+import i18n from "@/services/i18n";
 
 const productCache = new Map<string, ProductInfo>();
 const apiAdapter = new OpenFoodFactsAdapter();
 
-/**
- * Looks up a product by its barcode.
- *
- * Priority order (fastest first):
- *   1. In-memory Map (session-scoped, zero I/O)
- *   2. SQLite `dataJson` (persists between sessions)
- *   3. Open Food Facts API via adapter (network)
- *
- * When the API returns a result, it is saved to both the in-memory cache AND
- * persisted to SQLite (main columns + `dataJson`) so future lookups
- * (even after app restart) are instant without a network call.
- *
- * @param barcode - The scanned barcode string.
- * @returns The parsed `ProductInfo`, or `null` when the product is not found.
- */
+
+function currentLang(): string {
+  const lng = (i18n.language || "es").slice(0, 2).toLowerCase();
+  return lng === "en" || lng === "es" ? lng : "es";
+}
+
+
 export async function lookupProduct(
   barcode: string,
-): Promise<ProductInfo | null> {
-  // 1. In-memory cache (session-scoped, zero I/O)
+): Promise<LookupResult> {
+
   const cached = productCache.get(barcode);
-  if (cached) return cached;
+  if (cached) return { kind: "found", product: cached };
 
   const variants = [barcode];
   if (/^\d{12}$/.test(barcode)) variants.push(`0${barcode}`);
@@ -35,28 +33,32 @@ export async function lookupProduct(
     const hit = productCache.get(v);
     if (hit) {
       productCache.set(barcode, hit);
-      return hit;
+      return { kind: "found", product: hit };
     }
   }
 
-  // 2. SQLite via getProductInfo (reads dataJson)
+
   for (const v of [barcode, ...variants]) {
     const fromDb = await productRepository.getProductInfo(v);
     if (fromDb) {
       productCache.set(v, fromDb);
       productCache.set(barcode, fromDb);
-      return fromDb;
+      return { kind: "found", product: fromDb };
     }
   }
 
-  // 3. Open Food Facts API via adapter (network)
-  const parsed = await apiAdapter.lookup(barcode);
-  if (!parsed) return null;
 
+  const result = await apiAdapter.lookup(barcode, {
+    preferLanguage: currentLang(),
+  });
+
+  if (result.kind !== "found") return result;
+
+  const parsed = result.product;
   productCache.set(parsed.barcode, parsed);
   productCache.set(barcode, parsed);
 
-  // Persist to SQLite (main columns + dataJson) for future sessions
+
   try {
     await productRepository.upsertProduct({
       barcode: parsed.barcode,
@@ -71,8 +73,44 @@ export async function lookupProduct(
       createdAt: new Date(),
     });
   } catch {
-    // Non-critical: don't block the response
+
   }
 
-  return parsed;
+  return { kind: "found", product: parsed };
+}
+
+
+export async function lookupProductOrNull(
+  barcode: string,
+): Promise<ProductInfo | null> {
+  const r = await lookupProduct(barcode);
+  return r.kind === "found" ? r.product : null;
+}
+
+export type { ProductSearchHit };
+
+
+export async function searchProducts(
+  query: string,
+  opts?: {
+    pageSize?: number;
+    page?: number;
+    sortBy?: string;
+    langs?: string[];
+  },
+): Promise<SearchResult> {
+  const lang = currentLang();
+  const langs = opts?.langs && opts.langs.length > 0 ? opts.langs : [lang, "en"];
+  return apiAdapter.search(query, {
+    preferLanguage: lang,
+    langs,
+    pageSize: opts?.pageSize,
+    page: opts?.page,
+    sortBy: opts?.sortBy,
+  });
+}
+
+
+export function clearProductCache(): void {
+  productCache.clear();
 }

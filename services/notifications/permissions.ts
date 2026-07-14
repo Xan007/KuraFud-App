@@ -1,7 +1,7 @@
 import * as Notifications from "expo-notifications";
 
 export async function getNotificationPermissionStatus(): Promise<
-  Notifications.IosAuthorizationStatus | Notifications.AndroidAuthorizationStatus
+  Notifications.PermissionStatus
 > {
   const { status } = await Notifications.getPermissionsAsync();
   return status;
