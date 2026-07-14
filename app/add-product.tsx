@@ -1,9 +1,12 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "expo-router";
 import {
+  ActivityIndicator,
+  BackHandler,
   FlatList,
   Pressable,
   ScrollView,
+  SectionList,
   StyleSheet,
   TextInput,
   View,
@@ -17,51 +20,95 @@ import TopBar from "@/components/TopBar";
 import { AppText } from "@/components/ui/Text";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { DateTimePickerSheet } from "@/components/DateTimePickerSheet";
-import { productRepository, inventoryRepository } from "@/db/repositories";
+import { EditUnitSheet } from "@/components/EditUnitSheet";
+import {
+  productRepository,
+  inventoryRepository,
+} from "@/db/repositories";
 import type { ProductWithInventory } from "@/db/schema";
 import { showToast } from "@/helpers/toast";
+import {
+  lookupProductOrNull,
+  searchProducts,
+} from "@/services/productService";
+import type { ProductSearchHit } from "types";
+import { isManualBarcode } from "@/helpers/manualProduct";
+import { formatDateString } from "@/helpers/format";
+import { useAppTranslation } from "@/hooks/useAppTranslation";
+import { SearchLoadingTips } from "@/components/SearchLoadingTips";
+import { CannonConfetti } from "react-native-fast-confetti";
+import * as Haptics from "expo-haptics";
 
-type Phase = "choose" | "select-existing" | "new-product-form" | "add-dates";
+type Phase =
+  | "choose"
+  | "select-existing"
+  | "search-off"
+  | "new-product-form"
+  | "add-dates";
 
 export default function AddProductScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { t } = useAppTranslation();
 
   const [phase, setPhase] = useState<Phase>("choose");
 
-  // existing product selection
+
   const [allProducts, setAllProducts] = useState<ProductWithInventory[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
-  // selected product (existing or new)
+
+  const OFF_PAGE_SIZE = 20;
+  const [offQuery, setOffQuery] = useState("");
+  const [offHits, setOffHits] = useState<ProductSearchHit[]>([]);
+  const [offStatus, setOffStatus] = useState<"idle" | "searching" | "ok" | "offline">("idle");
+  const [offPage, setOffPage] = useState(1);
+  const [offHasMore, setOffHasMore] = useState(true);
+  const [offLoadingMore, setOffLoadingMore] = useState(false);
+
+
   const [selectedProduct, setSelectedProduct] = useState<{
     barcode: string;
     name: string;
+    brand: string;
     imageUrl: string;
   } | null>(null);
 
-  // new product form
+
+  const [pickingBarcode, setPickingBarcode] = useState<string | null>(null);
+  const pickingRef = useRef<AbortController | null>(null);
+
+
   const [newName, setNewName] = useState("");
   const [newPhoto, setNewPhoto] = useState<string | null>(null);
 
-  // pending inventory dates
+
   const [pendingDates, setPendingDates] = useState<string[]>([]);
-  const [showDatePicker, setShowDatePicker] = useState(false);
-  const pickerDateRef = useRef(new Date());
+  const [showEditDateSheet, setShowEditDateSheet] = useState(false);
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editDate, setEditDate] = useState(new Date());
   const [saving, setSaving] = useState(false);
+
+  const [confettiVisible, setConfettiVisible] = useState(false);
+
+
+  useEffect(() => {
+    if (!confettiVisible) return;
+    const t = setTimeout(() => setConfettiVisible(false), 3200);
+    return () => clearTimeout(t);
+  }, [confettiVisible]);
 
   useEffect(() => {
     if (phase === "select-existing") {
       setLoadingProducts(true);
       productRepository
-        .getAllProducts()
+        .getOwnedProducts()
         .then(setAllProducts)
-        .catch(() => showToast("Error al cargar productos"))
+        .catch(() => showToast(t("common.error")))
         .finally(() => setLoadingProducts(false));
     }
-  }, [phase]);
+  }, [phase, t]);
 
   const filteredProducts = allProducts.filter((p) => {
     if (!searchQuery) return true;
@@ -73,22 +120,147 @@ export default function AddProductScreen() {
     );
   });
 
-  const handleSelectProduct = (product: ProductWithInventory) => {
+
+  const { activeProducts, historyProducts } = (() => {
+    const active: typeof filteredProducts = [];
+    const history: typeof filteredProducts = [];
+    for (const p of filteredProducts) {
+      if (p.inventory.length > 0) {
+        active.push(p);
+      } else {
+        history.push(p);
+      }
+    }
+    return { activeProducts: active, historyProducts: history };
+  })();
+
+
+  const lastSearchedQueryRef = useRef<string>("");
+  useEffect(() => {
+    if (phase !== "search-off") return;
+    const q = offQuery.trim();
+    if (q.length < 2) {
+      lastSearchedQueryRef.current = "";
+      setOffHits([]);
+      setOffStatus("idle");
+      setOffPage(1);
+      setOffHasMore(false);
+      return;
+    }
+
+
+    if (q === lastSearchedQueryRef.current && offStatus === "ok") {
+      return;
+    }
+
+    setOffStatus("searching");
+    setOffHits([]);
+    setOffPage(1);
+    let cancelled = false;
+    const id = setTimeout(async () => {
+      const result = await searchProducts(q, { pageSize: OFF_PAGE_SIZE, page: 1 });
+      if (cancelled) return;
+      if (result.kind === "ok") {
+        lastSearchedQueryRef.current = q;
+        setOffHits(result.hits);
+        const total = result.totalCount ?? result.hits.length;
+        setOffHasMore(result.hits.length < total && result.hits.length >= OFF_PAGE_SIZE);
+        setOffPage(2);
+        setOffStatus("ok");
+      } else {
+        setOffHits([]);
+        setOffStatus("offline");
+        setOffHasMore(false);
+      }
+    }, 450);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(id);
+    };
+  }, [offQuery, phase, offStatus]);
+
+
+  const handleLoadMore = useCallback(async () => {
+    if (offLoadingMore || !offHasMore || offStatus !== "ok") return;
+    const q = offQuery.trim();
+    if (q.length < 2) return;
+
+    setOffLoadingMore(true);
+    try {
+      const result = await searchProducts(q, { pageSize: OFF_PAGE_SIZE, page: offPage });
+      if (result.kind === "ok") {
+        setOffHits((prev) => {
+          const seen = new Set(prev.map((h) => h.barcode));
+          const merged = [...prev, ...result.hits.filter((h) => !seen.has(h.barcode))];
+          return merged;
+        });
+        setOffHasMore(result.hits.length >= OFF_PAGE_SIZE);
+        setOffPage((p) => p + 1);
+      } else {
+        setOffHasMore(false);
+      }
+    } catch {
+      setOffHasMore(false);
+    } finally {
+      setOffLoadingMore(false);
+    }
+  }, [offLoadingMore, offHasMore, offStatus, offQuery, offPage]);
+
+
+  const [datesOrigin, setDatesOrigin] = useState<Phase>("choose");
+
+  const handlePickExisting = (product: ProductWithInventory) => {
     setSelectedProduct({
       barcode: product.barcode,
-      name: product.name || "Producto",
+      name: product.name || t("product.title"),
+      brand: product.brand || "",
       imageUrl: product.imageFrontUrl || "",
     });
     setPendingDates([]);
+    setDatesOrigin("select-existing");
     setPhase("add-dates");
+  };
+
+  const handlePickOffHit = (hit: ProductSearchHit) => {
+
+    if (pickingRef.current) {
+      pickingRef.current.abort();
+    }
+    const controller = new AbortController();
+    pickingRef.current = controller;
+    setPickingBarcode(hit.barcode);
+
+
+    setSelectedProduct({
+      barcode: hit.barcode,
+      name: hit.name || t("product.title"),
+      brand: hit.brand,
+      imageUrl: hit.imageUrl || "",
+    });
+    setPendingDates([]);
+    setDatesOrigin("search-off");
+    setPhase("add-dates");
+
+
+    lookupProductOrNull(hit.barcode)
+      .catch(() => null)
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setPickingBarcode((current) =>
+            current === hit.barcode ? null : current,
+          );
+        }
+      });
   };
 
   const handleNewProductContinue = () => {
     if (!newName.trim()) {
-      showToast("El nombre del producto es obligatorio");
+      showToast(t("addProduct.nameRequired"));
       return;
     }
     setPendingDates([]);
+    setDatesOrigin("new-product-form");
     setPhase("add-dates");
   };
 
@@ -97,7 +269,7 @@ export default function AddProductScreen() {
       const ImagePicker = await import("expo-image-picker");
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
-        showToast("Se necesita permiso para acceder a la galería");
+        showToast(t("addProduct.galleryPermission"));
         return;
       }
       const result = await ImagePicker.launchImageLibraryAsync({
@@ -109,21 +281,34 @@ export default function AddProductScreen() {
         setNewPhoto(result.assets[0].uri);
       }
     } catch {
-      showToast("Reconstruye la app para usar la galería: npx expo run:android");
+      showToast(t("addProduct.galleryRebuild"));
     }
   };
 
   const handleAddDate = () => {
-    setShowDatePicker(true);
+    setEditDate(new Date());
+    setEditingIndex(null);
+    setShowEditDateSheet(true);
+  };
+
+  const handleTapDate = (index: number) => {
+    const parts = pendingDates[index].split("/");
+    setEditDate(new Date(Date.UTC(+parts[2], +parts[1] - 1, +parts[0])));
+    setEditingIndex(index);
+    setShowEditDateSheet(true);
   };
 
   const handleDateConfirm = (date: Date) => {
-    const day = String(date.getUTCDate()).padStart(2, "0");
-    const month = String(date.getUTCMonth() + 1).padStart(2, "0");
-    const year = date.getUTCFullYear();
-    const formatted = `${day}/${month}/${year}`;
-    setPendingDates((prev) => [...prev, formatted]);
-    setShowDatePicker(false);
+    const formatted = formatDateString(date);
+    setPendingDates((prev) => {
+      if (editingIndex !== null) {
+        const next = [...prev];
+        next[editingIndex] = formatted;
+        return next;
+      }
+      return [...prev, formatted];
+    });
+    setShowEditDateSheet(false);
   };
 
   const handleRemoveDate = (index: number) => {
@@ -132,16 +317,38 @@ export default function AddProductScreen() {
 
   const resetAll = () => {
     setPendingDates([]);
+    setShowEditDateSheet(false);
+    setEditingIndex(null);
     setSelectedProduct(null);
+    setPickingBarcode(null);
+    if (pickingRef.current) pickingRef.current.abort();
     setNewName("");
     setNewPhoto(null);
     setSearchQuery("");
+    setOffQuery("");
+    setOffHits([]);
+    setOffStatus("idle");
+    lastSearchedQueryRef.current = "";
+    setDatesOrigin("choose");
     setPhase("choose");
+  };
+
+
+  const resetSelectionKeepSearch = () => {
+    setPendingDates([]);
+    setShowEditDateSheet(false);
+    setEditingIndex(null);
+    setSelectedProduct(null);
+    setPickingBarcode(null);
+    if (pickingRef.current) pickingRef.current.abort();
+    setNewName("");
+    setNewPhoto(null);
+    setDatesOrigin("choose");
   };
 
   const handleSave = async () => {
     if (pendingDates.length === 0) {
-      showToast("Agrega al menos una fecha de vencimiento");
+      showToast(t("addProduct.addAtLeastOneDate"));
       return;
     }
 
@@ -151,10 +358,32 @@ export default function AddProductScreen() {
       let barcode: string;
 
       if (selectedProduct) {
-        // existing product — just add inventory
+
         barcode = selectedProduct.barcode;
+        if (!isManualBarcode(barcode)) {
+
+          try {
+            const info = await lookupProductOrNull(barcode);
+            if (info) {
+              await productRepository.upsertProduct({
+                barcode: info.barcode,
+                name: info.name,
+                brand: info.brand,
+                quantity: info.quantity,
+                ingredients: info.ingredients,
+                imageFrontUrl: info.imageFrontUrl,
+                categories: info.categories,
+                nutriscore: info.nutriscore,
+                dataJson: JSON.stringify(info),
+                createdAt: new Date(),
+              });
+            }
+          } catch {
+
+          }
+        }
       } else {
-        // create new product with a generated barcode
+
         barcode = `MANUAL-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         await productRepository.upsertProduct({
           barcode,
@@ -177,13 +406,22 @@ export default function AddProductScreen() {
         });
       }
 
-      showToast(
-        `${pendingDates.length} unidad${pendingDates.length !== 1 ? "es" : ""} agregada${pendingDates.length !== 1 ? "s" : ""}`,
-      );
-      resetAll();
+
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      const origin = datesOrigin;
+
+      setConfettiVisible(true);
+      resetSelectionKeepSearch();
+      if (origin === "search-off") {
+        setPhase("search-off");
+      } else if (origin === "select-existing") {
+        setPhase("select-existing");
+      } else {
+        setPhase("choose");
+      }
+      setSaving(false);
     } catch {
-      showToast("Error al guardar");
-    } finally {
+      showToast(t("addProduct.errorSaving"));
       setSaving(false);
     }
   };
@@ -191,85 +429,199 @@ export default function AddProductScreen() {
   const handleBack = () => {
     if (phase === "choose") {
       router.back();
-    } else if (phase === "select-existing" || phase === "new-product-form") {
+    } else if (
+      phase === "select-existing" ||
+      phase === "new-product-form" ||
+      phase === "search-off"
+    ) {
       setPhase("choose");
     } else {
-      // add-dates
-      if (selectedProduct) setPhase("select-existing");
-      else setPhase("new-product-form");
+
+      setPhase(datesOrigin);
     }
   };
+
+
+  const handleBackRef = useRef(handleBack);
+  handleBackRef.current = handleBack;
+
+
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener(
+      "hardwareBackPress",
+      () => {
+        handleBackRef.current();
+        return true;
+      },
+    );
+    return () => subscription.remove();
+  }, []);
 
   const getTitle = () => {
     switch (phase) {
       case "choose":
-        return "Agregar producto";
+        return t("addProduct.title");
       case "select-existing":
-        return "Seleccionar producto";
+        return t("addProduct.selectProduct");
+      case "search-off":
+        return t("addProduct.searchOn");
       case "new-product-form":
-        return "Nuevo producto";
+        return t("addProduct.newProductForm");
       case "add-dates":
-        return "Agregar fechas";
+        return t("addProduct.addDates");
     }
   };
 
   const renderChoose = () => (
-    <View style={styles.chooseContainer}>
+    <ScrollView
+      contentContainerStyle={[styles.chooseContainer, { paddingBottom: insets.bottom + Spacing.lg }]}
+    >
       <AppText variant="subheading" color={Colors.textSecondary} style={styles.chooseHeader}>
-        ¿Cómo quieres agregarlo?
+        {t("addProduct.choose")}
       </AppText>
 
-      <Pressable
-        style={({ pressed }) => [styles.chooseCard, pressed && styles.cardPressed]}
+      <ChooseCard
+        icon={{ ios: "magnifyingglass", android: "search" }}
+        title={t("addProduct.searchOn")}
+        hint={t("addProduct.searchOnHint")}
+        onPress={() => setPhase("search-off")}
+      />
+      <ChooseCard
+        icon={{ ios: "arrow.triangle.swap", android: "swap_horiz" }}
+        title={t("addProduct.existingProduct")}
+        hint={t("addProduct.existingProductHint")}
         onPress={() => setPhase("select-existing")}
-      >
-        <View style={[styles.chooseIcon, { backgroundColor: Colors.primary + "15" }]}>
-          <SymbolView
-            name={{ ios: "arrow.triangle.swap", android: "swap_horiz" }}
-            size={26}
-            tintColor={Colors.primary}
-          />
-        </View>
-        <View style={styles.chooseCardContent}>
-          <AppText variant="subheading">A partir de un producto existente</AppText>
-          <AppText variant="body" color={Colors.textSecondary}>
-            Usa un producto que ya hayas escaneado
-          </AppText>
-        </View>
-        <SymbolView
-          name={{ ios: "chevron.right", android: "chevron_right" }}
-          size={16}
-          tintColor={Colors.textSecondary}
-        />
-      </Pressable>
-
-      <Pressable
-        style={({ pressed }) => [styles.chooseCard, pressed && styles.cardPressed]}
+      />
+      <ChooseCard
+        icon={{ ios: "plus.square", android: "add_box" }}
+        title={t("addProduct.newProduct")}
+        hint={t("addProduct.newProductHint")}
         onPress={() => setPhase("new-product-form")}
-      >
-        <View style={[styles.chooseIcon, { backgroundColor: Colors.primary + "15" }]}>
-          <SymbolView
-            name={{ ios: "plus.square", android: "add_box" }}
-            size={26}
-            tintColor={Colors.primary}
-          />
-        </View>
-        <View style={styles.chooseCardContent}>
-          <AppText variant="subheading">Crear nuevo producto</AppText>
-          <AppText variant="body" color={Colors.textSecondary}>
-            Ingresa los datos manualmente
-          </AppText>
-        </View>
-        <SymbolView
-          name={{ ios: "chevron.right", android: "chevron_right" }}
-          size={16}
-          tintColor={Colors.textSecondary}
-        />
-      </Pressable>
-    </View>
+      />
+    </ScrollView>
   );
 
-  const renderSelectExisting = () => (
+  const renderSelectExisting = () => {
+    const sections: {
+      title: string;
+      data: ProductWithInventory[];
+    }[] = [];
+
+
+    if (activeProducts.length > 0) {
+      sections.push({
+        title: t("addProduct.activeInventorySection"),
+        data: activeProducts,
+      });
+    }
+    if (historyProducts.length > 0) {
+      sections.push({
+        title: t("addProduct.historyProductsSection"),
+        data: historyProducts,
+      });
+    }
+
+    const isEmpty =
+      !loadingProducts &&
+      activeProducts.length === 0 &&
+      historyProducts.length === 0;
+
+    return (
+      <View style={{ flex: 1 }}>
+        <View style={styles.searchContainer}>
+          <View style={styles.searchInputWrapper}>
+            <SymbolView
+              name={{ ios: "magnifyingglass", android: "search" }}
+              size={18}
+              tintColor={Colors.textSecondary}
+            />
+            <TextInput
+              style={styles.searchInput}
+              placeholder={t("addProduct.searchLocalPlaceholder")}
+              placeholderTextColor={Colors.textSecondary}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+            />
+            {searchQuery ? (
+              <Pressable onPress={() => setSearchQuery("")} hitSlop={8}>
+                <SymbolView
+                  name={{ ios: "xmark.circle.fill", android: "cancel" }}
+                  size={18}
+                  tintColor={Colors.textSecondary}
+                />
+              </Pressable>
+            ) : null}
+          </View>
+        </View>
+
+        <SectionList
+          sections={sections}
+          keyExtractor={(item) => item.barcode}
+          contentContainerStyle={styles.listContent}
+          keyboardShouldPersistTaps="handled"
+          stickySectionHeadersEnabled={false}
+          renderSectionHeader={({ section: { title } }) => (
+            <View style={styles.sectionHeader}>
+              <AppText variant="label" color={Colors.textSecondary}>
+                {title}
+              </AppText>
+            </View>
+          )}
+          renderItem={({ item }) => (
+            <Pressable
+              style={({ pressed }) => [styles.productRow, pressed && styles.rowPressed]}
+              onPress={() => handlePickExisting(item)}
+            >
+              <View style={styles.productRowInfo}>
+                <AppText variant="subheading" numberOfLines={1}>
+                  {item.name || t("product.title")}
+                </AppText>
+                {item.brand ? (
+                  <AppText variant="caption" color={Colors.textSecondary}>
+                    {item.brand}
+                  </AppText>
+                ) : null}
+              </View>
+              <SymbolView
+                name={{ ios: "chevron.right", android: "chevron_right" }}
+                size={16}
+                tintColor={Colors.textSecondary}
+              />
+            </Pressable>
+          )}
+          ListEmptyComponent={
+            isEmpty ? (
+              loadingProducts ? (
+                <View style={styles.emptyContainer}>
+                  <AppText variant="body" color={Colors.textSecondary}>
+                    {t("addProduct.loadingProducts")}
+                  </AppText>
+                </View>
+              ) : (
+                <EmptyState
+                  icon={
+                    <SymbolView
+                      name={{ ios: "tray", android: "inbox" }}
+                      size={40}
+                      tintColor={Colors.textSecondary}
+                    />
+                  }
+                  title={searchQuery ? t("addProduct.noResults") : t("addProduct.noProducts")}
+                  subtitle={
+                    searchQuery
+                      ? t("addProduct.noResultsHint")
+                      : t("addProduct.noProductsHint")
+                  }
+                />
+              )
+            ) : null
+          }
+        />
+      </View>
+    );
+  };
+
+  const renderSearchOff = () => (
     <View style={{ flex: 1 }}>
       <View style={styles.searchContainer}>
         <View style={styles.searchInputWrapper}>
@@ -280,14 +632,14 @@ export default function AddProductScreen() {
           />
           <TextInput
             style={styles.searchInput}
-            placeholder="Buscar producto..."
+            placeholder={t("addProduct.searchOffPlaceholder")}
             placeholderTextColor={Colors.textSecondary}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            autoFocus
+            value={offQuery}
+            onChangeText={setOffQuery}
+            returnKeyType="search"
           />
-          {searchQuery ? (
-            <Pressable onPress={() => setSearchQuery("")} hitSlop={8}>
+          {offQuery ? (
+            <Pressable onPress={() => setOffQuery("")} hitSlop={8}>
               <SymbolView
                 name={{ ios: "xmark.circle.fill", android: "cancel" }}
                 size={18}
@@ -299,60 +651,157 @@ export default function AddProductScreen() {
       </View>
 
       <FlatList
-        data={filteredProducts}
+        data={offHits}
         keyExtractor={(item) => item.barcode}
         contentContainerStyle={styles.listContent}
         keyboardShouldPersistTaps="handled"
-        renderItem={({ item }) => (
-          <Pressable
-            style={({ pressed }) => [styles.productRow, pressed && styles.rowPressed]}
-            onPress={() => handleSelectProduct(item)}
-          >
-            <View style={styles.productRowInfo}>
-              <AppText variant="subheading" numberOfLines={1}>
-                {item.name || "Producto"}
+        onEndReached={handleLoadMore}
+        onEndReachedThreshold={0.4}
+        ListEmptyComponent={renderOffEmpty()}
+        ListFooterComponent={
+          offLoadingMore ? (
+            <View style={styles.loadMoreFooter}>
+              <ActivityIndicator size="small" color={Colors.primary} />
+              <AppText variant="caption" color={Colors.textSecondary}>
+                {t("addProduct.loadingMore")}
               </AppText>
-              {item.brand && (
-                <AppText variant="caption" color={Colors.textSecondary}>
-                  {item.brand}
+            </View>
+          ) : null
+        }
+        renderItem={({ item }) => {
+          const isPicking = pickingBarcode === item.barcode;
+          return (
+            <Pressable
+              style={({ pressed }) => [
+                styles.productRow,
+                (pressed || isPicking) && styles.rowPressed,
+              ]}
+              onPress={() => handlePickOffHit(item)}
+              disabled={!!pickingBarcode}
+            >
+              <View style={styles.offRowImageWrap}>
+                {item.imageUrl ? (
+                  <Image
+                    source={{ uri: item.imageUrl }}
+                    style={styles.offRowImage}
+                    contentFit="cover"
+                    cachePolicy="memory-disk"
+                  />
+                ) : (
+                  <View style={styles.offRowPlaceholder}>
+                    <SymbolView
+                      name={{ ios: "photo", android: "image" }}
+                      size={18}
+                      tintColor={Colors.textSecondary}
+                    />
+                  </View>
+                )}
+              </View>
+              <View style={styles.productRowInfo}>
+                <AppText variant="subheading" numberOfLines={2}>
+                  {item.name}
                 </AppText>
-              )}
-            </View>
-            <SymbolView
-              name={{ ios: "chevron.right", android: "chevron_right" }}
-              size={16}
-              tintColor={Colors.textSecondary}
-            />
-          </Pressable>
-        )}
-        ListEmptyComponent={
-          loadingProducts ? (
-            <View style={styles.emptyContainer}>
-              <AppText variant="body" color={Colors.textSecondary}>
-                Cargando...
-              </AppText>
-            </View>
-          ) : (
-            <EmptyState
-              icon={
+                {item.brand ? (
+                  <AppText variant="caption" color={Colors.textSecondary} numberOfLines={1}>
+                    {item.brand}
+                  </AppText>
+                ) : null}
+                <AppText variant="caption" color={Colors.textSecondary}>
+                  {item.barcode}
+                </AppText>
+              </View>
+              {isPicking ? (
+                <ActivityIndicator size="small" color={Colors.primary} />
+              ) : (
                 <SymbolView
-                  name={{ ios: "tray", android: "inbox" }}
-                  size={40}
+                  name={{ ios: "chevron.right", android: "chevron_right" }}
+                  size={16}
                   tintColor={Colors.textSecondary}
                 />
-              }
-              title={searchQuery ? "Sin resultados" : "No hay productos"}
-              subtitle={
-                searchQuery
-                  ? "Intenta con otro término"
-                  : "Escanea productos primero"
-              }
-            />
-          )
-        }
+              )}
+            </Pressable>
+          );
+        }}
       />
+
+      <View style={[styles.bottomHint, { paddingBottom: insets.bottom + Spacing.md }]}>
+        <AppText variant="caption" color={Colors.textSecondary}>
+          {t("addProduct.existsPrompt")}
+        </AppText>
+        <Button
+          variant="secondary"
+          size="sm"
+          onPress={() => setPhase("select-existing")}
+        >
+          {t("addProduct.existingProduct")}
+        </Button>
+      </View>
     </View>
   );
+
+  const renderOffEmpty = () => {
+    if (offStatus === "idle") {
+      return (
+        <EmptyState
+          icon={
+            <SymbolView
+              name={{ ios: "person.crop.circle.badge.questionmark", android: "person_search" }}
+              size={44}
+              tintColor={Colors.textSecondary}
+            />
+          }
+          title={t("addProduct.searchOn")}
+          subtitle={t("addProduct.searchOnHint")}
+        />
+      );
+    }
+    if (offStatus === "searching") {
+      return <SearchLoadingTips />;
+    }
+    if (offStatus === "offline") {
+      return (
+        <EmptyState
+          icon={
+            <SymbolView
+              name={{ ios: "wifi.slash", android: "wifi_off" }}
+              size={40}
+              tintColor={Colors.textSecondary}
+            />
+          }
+          title={t("product.offline")}
+          subtitle={t("addProduct.searchOffline")}
+        />
+      );
+    }
+
+    if (offQuery.trim().length < 2) {
+      return (
+        <EmptyState
+          icon={
+            <SymbolView
+              name={{ ios: "keyboard", android: "keyboard" }}
+              size={40}
+              tintColor={Colors.textSecondary}
+            />
+          }
+          title={t("addProduct.searchTooShort")}
+        />
+      );
+    }
+    return (
+      <EmptyState
+        icon={
+          <SymbolView
+            name={{ ios: "tray", android: "inbox" }}
+            size={40}
+            tintColor={Colors.textSecondary}
+          />
+        }
+        title={t("addProduct.noResults")}
+        subtitle={t("addProduct.noResultsHint")}
+      />
+    );
+  };
 
   const renderNewProductForm = () => (
     <ScrollView
@@ -385,7 +834,7 @@ export default function AddProductScreen() {
                 tintColor={Colors.textSecondary}
               />
               <AppText variant="caption" color={Colors.textSecondary}>
-                Añadir foto
+                {t("addProduct.addPhoto")}
               </AppText>
             </View>
           )}
@@ -393,11 +842,11 @@ export default function AddProductScreen() {
       </View>
 
       <AppText variant="label" color={Colors.textSecondary} style={styles.fieldLabel}>
-        NOMBRE DEL PRODUCTO
+        {t("addProduct.labelName")}
       </AppText>
       <TextInput
         style={styles.textInput}
-        placeholder="Ej: Leche entera"
+        placeholder={t("addProduct.enterName")}
         placeholderTextColor={Colors.textSecondary}
         value={newName}
         onChangeText={setNewName}
@@ -408,7 +857,7 @@ export default function AddProductScreen() {
 
       <View style={styles.formActions}>
         <Button variant="secondary" onPress={() => setPhase("choose")}>
-          Volver
+          {t("addProduct.back")}
         </Button>
         <Button
           variant="primary"
@@ -416,7 +865,7 @@ export default function AddProductScreen() {
           disabled={!newName.trim()}
           style={{ flex: 1 }}
         >
-          Continuar
+          {t("addProduct.continue")}
         </Button>
       </View>
     </ScrollView>
@@ -425,7 +874,6 @@ export default function AddProductScreen() {
   const renderAddDates = () => {
     const productName = selectedProduct?.name || newName.trim();
     const productImage = selectedProduct?.imageUrl || newPhoto;
-    const isExisting = !!selectedProduct;
 
     return (
       <View style={{ flex: 1 }}>
@@ -458,30 +906,33 @@ export default function AddProductScreen() {
               <AppText variant="subheading" numberOfLines={2}>
                 {productName}
               </AppText>
-              <AppText variant="caption" color={Colors.textSecondary}>
-                {isExisting
-                  ? "Producto existente"
-                  : "Producto nuevo"}
-              </AppText>
+              {selectedProduct && selectedProduct.brand ? (
+                <AppText variant="caption" color={Colors.textSecondary} numberOfLines={1}>
+                  {selectedProduct.brand}
+                </AppText>
+              ) : null}
             </View>
           </View>
 
           <View style={styles.sectionDivider} />
 
           <AppText variant="label" color={Colors.textSecondary} style={styles.datesLabel}>
-            FECHAS DE VENCIMIENTO
+            {t("addProduct.labelDates")}
           </AppText>
 
           {pendingDates.length === 0 ? (
             <View style={styles.noDates}>
               <AppText variant="body" color={Colors.textSecondary}>
-                Aún no has agregado fechas
+                {t("addProduct.noDatesYet")}
               </AppText>
             </View>
           ) : (
             pendingDates.map((date, index) => (
               <View key={index} style={styles.dateRow}>
-                <View style={styles.dateRowContent}>
+                <Pressable
+                  style={styles.dateRowContent}
+                  onPress={() => handleTapDate(index)}
+                >
                   <View style={styles.dateIcon}>
                     <SymbolView
                       name={{ ios: "calendar", android: "calendar_month" }}
@@ -492,7 +943,7 @@ export default function AddProductScreen() {
                   <AppText variant="subheading" style={{ fontFamily: "monospace" }}>
                     {date}
                   </AppText>
-                </View>
+                </Pressable>
                 <Pressable onPress={() => handleRemoveDate(index)} hitSlop={12}>
                   <SymbolView
                     name={{ ios: "trash.fill", android: "delete" }}
@@ -517,7 +968,7 @@ export default function AddProductScreen() {
               tintColor={Colors.primary}
             />
             <AppText variant="subheading" color={Colors.primary}>
-              Añadir fecha
+              {t("addProduct.addDate")}
             </AppText>
           </Pressable>
         </ScrollView>
@@ -534,7 +985,7 @@ export default function AddProductScreen() {
             style={{ flex: 1 }}
             disabled={saving}
           >
-            Cancelar
+            {t("common.cancel")}
           </Button>
           <Button
             variant="primary"
@@ -543,18 +994,37 @@ export default function AddProductScreen() {
             style={{ flex: 2 }}
           >
             {saving
-              ? "Guardando..."
-              : `Guardar${pendingDates.length > 0 ? ` (${pendingDates.length})` : ""}`}
+              ? t("addProduct.saving")
+              : t("addProduct.saveN", { count: pendingDates.length })}
           </Button>
         </View>
 
-        <DateTimePickerSheet
-          visible={showDatePicker}
-          mode="date"
-          value={pickerDateRef.current}
-          onChange={(date) => { pickerDateRef.current = date; }}
-          onCancel={() => setShowDatePicker(false)}
-          onConfirm={() => handleDateConfirm(pickerDateRef.current)}
+        <EditUnitSheet
+          visible={showEditDateSheet}
+          date={editDate}
+          onChangeDate={setEditDate}
+          onCancel={() => setShowEditDateSheet(false)}
+          onConfirm={() => handleDateConfirm(editDate)}
+          onDelete={() => {}}
+          showDelete={false}
+          confirmLabel={t("common.save")}
+          cancelLabel={t("common.cancel")}
+          sheetTitle=""
+          deleteConfirmTitle=""
+          deleteConfirmBody=""
+          deleteConfirmLabel=""
+          deleteCancelLabel=""
+          labels={{
+            day: t("product.labelDay"),
+            month: t("product.labelMonth"),
+            year: t("product.labelYear"),
+          }}
+          orderByLabel={t("product.selectOrderBy")}
+          orderDmyLabel={t("product.orderDmy")}
+          orderMdyLabel={t("product.orderMdy")}
+          monthModeByLabel={t("product.selectMonthModeBy")}
+          monthModeNumberLabel={t("product.monthModeNumber")}
+          monthModeNameLabel={t("product.monthModeName")}
         />
       </View>
     );
@@ -565,9 +1035,70 @@ export default function AddProductScreen() {
       <TopBar title={getTitle()} showBack onBack={handleBack} />
       {phase === "choose" && renderChoose()}
       {phase === "select-existing" && renderSelectExisting()}
+      {phase === "search-off" && renderSearchOff()}
       {phase === "new-product-form" && renderNewProductForm()}
       {phase === "add-dates" && renderAddDates()}
+
+
+      {confettiVisible ? (
+        <CannonConfetti
+          autoplay
+          gravity={2}
+          containerStyle={StyleSheet.absoluteFill}
+        >
+          <CannonConfetti.Origin
+            position="bottom-left"
+            count={80}
+            initialSpeed={3}
+          >
+            <CannonConfetti.Flake size={12} radius={6} />
+          </CannonConfetti.Origin>
+          <CannonConfetti.Origin
+            position="bottom-right"
+            count={80}
+            initialSpeed={3}
+          >
+            <CannonConfetti.Flake size={12} radius={6} />
+          </CannonConfetti.Origin>
+        </CannonConfetti>
+      ) : null}
     </View>
+  );
+}
+
+
+
+function ChooseCard({
+  icon,
+  title,
+  hint,
+  onPress,
+}: {
+  icon: { ios: string; android: string };
+  title: string;
+  hint: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      style={({ pressed }) => [styles.chooseCard, pressed && styles.cardPressed]}
+      onPress={onPress}
+    >
+      <View style={[styles.chooseIcon, { backgroundColor: Colors.primary + "1A" }]}>
+        <SymbolView name={icon as any} size={26} tintColor={Colors.primary} />
+      </View>
+      <View style={styles.chooseCardContent}>
+        <AppText variant="subheading">{title}</AppText>
+        <AppText variant="body" color={Colors.textSecondary}>
+          {hint}
+        </AppText>
+      </View>
+      <SymbolView
+        name={{ ios: "chevron.right", android: "chevron_right" }}
+        size={16}
+        tintColor={Colors.textSecondary}
+      />
+    </Pressable>
   );
 }
 
@@ -577,7 +1108,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
   },
 
-  // ── choose phase ──
+
   chooseContainer: {
     flex: 1,
     paddingHorizontal: Spacing.xl,
@@ -612,7 +1143,7 @@ const styles = StyleSheet.create({
     gap: Spacing.xs,
   },
 
-  // ── select existing ──
+
   searchContainer: {
     paddingHorizontal: Spacing.xl,
     paddingVertical: Spacing.md,
@@ -639,6 +1170,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.xl,
     paddingBottom: 32,
   },
+  sectionHeader: {
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.sm,
+    paddingHorizontal: Spacing.xs,
+    backgroundColor: Colors.background,
+  },
   productRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -655,12 +1192,51 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 2,
   },
+  offRowImageWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: BorderRadius.sm,
+    overflow: "hidden",
+    backgroundColor: Colors.surface,
+    flexShrink: 0,
+  },
+  offRowImage: {
+    width: "100%",
+    height: "100%",
+  },
+  offRowPlaceholder: {
+    width: "100%",
+    height: "100%",
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: Colors.surface,
+  },
+  bottomHint: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: Spacing.xl,
+    paddingTop: Spacing.md,
+    gap: Spacing.xs,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+    backgroundColor: Colors.background,
+    alignItems: "center",
+  },
   emptyContainer: {
     paddingVertical: Spacing.xl,
     alignItems: "center",
   },
+  loadMoreFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: Spacing.sm,
+    paddingVertical: Spacing.lg,
+  },
 
-  // ── new product form ──
+
   formContent: {
     paddingHorizontal: Spacing.xl,
     paddingTop: Spacing.xl,
@@ -714,7 +1290,7 @@ const styles = StyleSheet.create({
     marginTop: Spacing.md,
   },
 
-  // ── add dates ──
+
   datesContent: {
     paddingHorizontal: Spacing.xl,
     paddingTop: Spacing.lg,
@@ -781,7 +1357,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: BorderRadius.sm,
-    backgroundColor: Colors.primary + "15",
+    backgroundColor: Colors.primary + "1A",
     justifyContent: "center",
     alignItems: "center",
   },

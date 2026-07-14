@@ -15,6 +15,7 @@ import {
   FontSize,
   Spacing,
   BorderRadius,
+  withOpacity,
 } from "@/constants/theme";
 import TopBar from "@/components/TopBar";
 import { AppText } from "@/components/ui/Text";
@@ -42,33 +43,42 @@ export default function AddReminderScreen() {
   const [loading, setLoading] = useState(true);
   const [customDays, setCustomDays] = useState("");
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const offsets = await reminderRepository.getReminderOffsets();
-        setExistingOffsets(offsets);
-      } catch (e) {
-        console.error("Error loading offsets:", e);
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
+  const loadOffsets = useCallback(async () => {
+    try {
+      const offsets = await reminderRepository.getReminderOffsets();
+      setExistingOffsets(offsets);
+    } catch (e) {
+      console.error("Error loading offsets:", e);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  const existingDays = existingOffsets.map((o) => o.days);
+  useEffect(() => {
+    loadOffsets();
+  }, [loadOffsets]);
 
   const handleAddOffset = useCallback(
     async (days: number) => {
       try {
-        await reminderRepository.addReminderOffset(days);
-        showToast(formatOffsetLabel(days) + " añadido");
-        router.back();
+        const added = await reminderRepository.addReminderOffset(days);
+        setExistingOffsets((prev) => [...prev, added]);
+        showToast(formatOffsetLabel(days, t));
       } catch (e) {
         showToast(t("messages.errorAddingReminder"));
       }
     },
-    [router],
+    [t],
+  );
+
+  const handleToggleOffset = useCallback(
+    async (id: number, days: number, enabled: boolean) => {
+      await reminderRepository.setReminderOffsetEnabled(id, !enabled);
+      setExistingOffsets((prev) =>
+        prev.map((o) => (o.id === id ? { ...o, enabled: !enabled } : o)),
+      );
+    },
+    [],
   );
 
   const handleAddCustom = useCallback(async () => {
@@ -77,17 +87,24 @@ export default function AddReminderScreen() {
       showToast(t("messages.invalidNumber"));
       return;
     }
-    if (existingDays.includes(days)) {
-      showToast(t("settings.alreadyExists", { label: formatOffsetLabel(days) }));
+    const existing = existingOffsets.find((o) => o.days === days);
+    if (existing) {
+      await handleToggleOffset(existing.id, existing.days, existing.enabled);
+      setCustomDays("");
       return;
     }
     await handleAddOffset(days);
-  }, [customDays, existingDays, handleAddOffset]);
+    setCustomDays("");
+  }, [customDays, existingOffsets, handleAddOffset, handleToggleOffset, t]);
 
   if (loading) {
     return (
       <View style={styles.container}>
-        <TopBar title={t("settings.addReminderTitle")} showBack onBack={() => router.back()} />
+        <TopBar
+          title={t("settings.addReminderTitle")}
+          showBack
+          onBack={() => router.back()}
+        />
         <LoadingState message={t("common.loading")} />
       </View>
     );
@@ -108,56 +125,113 @@ export default function AddReminderScreen() {
           { paddingBottom: insets.bottom + 32 },
         ]}
       >
-        <AppText variant="label" color={Colors.textSecondary} style={styles.sectionTitle}>
-          {t("settings.addReminderPredefined")}
-        </AppText>
 
-        {QUICK_ADD_OFFSETS.map((days) => {
-          const alreadyExists = existingDays.includes(days);
-          return (
-            <Pressable
-              key={days}
-              style={({ pressed }) => [
-                styles.optionRow,
-                pressed && !alreadyExists && styles.rowPressed,
-                alreadyExists && styles.optionDisabled,
-              ]}
-              onPress={() => !alreadyExists && handleAddOffset(days)}
-              disabled={alreadyExists}
-            >
-              <AppText
-                variant="body"
-                color={alreadyExists ? Colors.textSecondary : Colors.text}
-              >
-                {formatOffsetLabel(days)}
-              </AppText>
-              {alreadyExists && (
-                <AppText variant="caption" color={Colors.textSecondary}>
-                  {t("settings.alreadyAdded")}
-                </AppText>
-              )}
-            </Pressable>
-          );
-        })}
-
-        <View style={styles.divider} />
-
-        <AppText variant="label" color={Colors.textSecondary} style={styles.sectionTitle}>
-          {t("settings.addReminderCustom")}
-        </AppText>
-
-        <View style={styles.customRow}>
-          <TextInput
-            style={styles.customInput}
-            placeholder={t("settings.customDaysPlaceholder")}
-            placeholderTextColor={Colors.textSecondary}
-            value={customDays}
-            onChangeText={setCustomDays}
-            keyboardType="number-pad"
+        <View style={styles.sectionHeader}>
+          <SymbolView
+            name={{ ios: "star.fill", android: "star" }}
+            size={14}
+            tintColor={Colors.primary}
           />
+          <AppText variant="label" color={Colors.textSecondary}>
+            {t("settings.addReminderPredefined")}
+          </AppText>
+        </View>
+
+        <View style={styles.chipGrid}>
+          {QUICK_ADD_OFFSETS.map((days) => {
+            const existing = existingOffsets.find((o) => o.days === days);
+            const isActive = !!existing?.enabled;
+
+            return (
+              <Pressable
+                key={days}
+                style={({ pressed }) => [
+                  styles.chip,
+                  isActive && styles.chipActive,
+                  pressed && styles.chipPressed,
+                ]}
+                onPress={() => {
+                  if (existing) {
+                    handleToggleOffset(
+                      existing.id,
+                      existing.days,
+                      existing.enabled,
+                    );
+                  } else {
+                    handleAddOffset(days);
+                  }
+                }}
+              >
+                <AppText
+                  variant="bodyMedium"
+                  color={isActive ? Colors.primary : Colors.text}
+                  style={styles.chipLabel}
+                >
+                  {formatOffsetLabel(days, t)}
+                </AppText>
+                <SymbolView
+                  name={
+                    isActive
+                      ? { ios: "checkmark.circle.fill", android: "check_circle" }
+                      : { ios: "circle", android: "radio_button_unchecked" }
+                  }
+                  size={18}
+                  tintColor={isActive ? Colors.primary : Colors.textSecondary}
+                />
+              </Pressable>
+            );
+          })}
+        </View>
+
+
+        <View style={styles.sectionHeader}>
+          <SymbolView
+            name={{ ios: "slider.horizontal.3", android: "tune" }}
+            size={14}
+            tintColor={Colors.primary}
+          />
+          <AppText variant="label" color={Colors.textSecondary}>
+            {t("settings.addReminderCustom")}
+          </AppText>
+        </View>
+
+        <View style={styles.customCard}>
+          <View style={styles.customInputRow}>
+            <SymbolView
+              name={{ ios: "calendar.badge.plus", android: "calendar_add_on" }}
+              size={18}
+              tintColor={Colors.textSecondary}
+            />
+            <TextInput
+              style={styles.customInput}
+              placeholder={t("settings.customDaysPlaceholder")}
+              placeholderTextColor={Colors.textSecondary}
+              value={customDays}
+              onChangeText={setCustomDays}
+              keyboardType="number-pad"
+            />
+            {customDays !== "" && (
+              <Pressable
+                onPress={() => setCustomDays("")}
+                hitSlop={8}
+                style={styles.customClearBtn}
+              >
+                <SymbolView
+                  name={{ ios: "xmark.circle.fill", android: "cancel" }}
+                  size={18}
+                  tintColor={Colors.textSecondary}
+                />
+              </Pressable>
+            )}
+          </View>
+
+          <AppText variant="caption" color={Colors.textSecondary} style={styles.customHint}>
+            {t("settings.customDaysHint")}
+          </AppText>
+
           <Button
             variant="primary"
-            size="sm"
+            size="md"
             onPress={handleAddCustom}
             disabled={!customDays}
           >
@@ -178,47 +252,83 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingVertical: Spacing.xl,
-    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.lg,
+    paddingHorizontal: Spacing.lg,
   },
-  sectionTitle: {
+
+
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    paddingHorizontal: Spacing.xs,
+    marginTop: Spacing.lg,
     marginBottom: Spacing.md,
-    paddingHorizontal: Spacing.xs,
   },
-  optionRow: {
+
+
+  chipGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: Spacing.sm,
+  },
+  chip: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.xs,
-  },
-  optionDisabled: {
-    opacity: 0.5,
-  },
-  rowPressed: {
-    opacity: 0.6,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: Colors.border,
-    marginVertical: Spacing.xl,
-  },
-  customRow: {
-    flexDirection: "row",
-    gap: Spacing.md,
-    alignItems: "center",
-    paddingHorizontal: Spacing.xs,
-  },
-  customInput: {
-    flex: 1,
+    gap: Spacing.sm,
     paddingVertical: Spacing.sm + 2,
     paddingHorizontal: Spacing.md,
     borderRadius: BorderRadius.md,
     borderCurve: "continuous",
-    fontSize: FontSize.md,
-    color: Colors.text,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.surface,
+  },
+  chipActive: {
+    borderColor: Colors.primary,
+    backgroundColor: withOpacity(Colors.primary, 0.08),
+  },
+  chipPressed: {
+    opacity: 0.6,
+  },
+  chipLabel: {
+    maxWidth: 140,
+  },
+
+
+  customCard: {
+    padding: Spacing.lg,
+    borderRadius: BorderRadius.lg,
+    borderCurve: "continuous",
     backgroundColor: Colors.surface,
     borderWidth: 1,
     borderColor: Colors.border,
+    gap: Spacing.md,
+  },
+  customInputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm + 2,
+    borderRadius: BorderRadius.md,
+    borderCurve: "continuous",
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.background,
+  },
+  customInput: {
+    flex: 1,
+    fontSize: FontSize.md,
+    color: Colors.text,
+    padding: 0,
+  },
+  customClearBtn: {
+    padding: Spacing.xs,
+    marginLeft: Spacing.xs,
+  },
+  customHint: {
+    paddingHorizontal: Spacing.xs,
+    lineHeight: 18,
   },
 });

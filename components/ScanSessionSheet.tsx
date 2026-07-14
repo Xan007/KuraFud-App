@@ -1,8 +1,8 @@
-import { memo } from "react";
-import { View, StyleSheet, Pressable, ScrollView } from "react-native";
+import { memo, useCallback } from "react";
+import { View, StyleSheet, Pressable, FlatList } from "react-native";
 import { Image } from "expo-image";
 import { SymbolView } from "expo-symbols";
-import { Colors, BorderRadius, Spacing } from "@/constants/theme";
+import { Colors, BorderRadius, Spacing, withOpacity } from "@/constants/theme";
 import { AppText } from "./ui/Text";
 import { Button } from "./ui/Button";
 import { IconButton } from "./ui/IconButton";
@@ -19,29 +19,65 @@ export type SessionItem = {
 
 type Props = {
   items: SessionItem[];
+  selectedKey: string | null;
+  finalizing?: boolean;
+  onSelectItem: (key: string) => void;
   onRemoveItem: (key: string) => void;
   onEditDate: (key: string) => void;
-  onScanDate: (key: string) => void;
   onFinalize: () => void;
   onCancel: () => void;
 };
 
 const CARD_WIDTH = 110;
 const CARD_HEIGHT = 170;
+const SELECTED_TINT = withOpacity(Colors.primary, 0.08);
+
+const CornerBrackets = memo(function CornerBrackets() {
+  return (
+    <>
+      <View style={[styles.corner, styles.cornerTL]} />
+      <View style={[styles.corner, styles.cornerTR]} />
+      <View style={[styles.corner, styles.cornerBL]} />
+      <View style={[styles.corner, styles.cornerBR]} />
+    </>
+  );
+});
 
 function SessionItemCard({
   item,
-  onRemove,
+  isSelected,
+  onSelect,
   onEditDate,
-  onScanDate,
+  onRemove,
 }: {
   item: SessionItem;
-  onRemove: () => void;
+  isSelected: boolean;
+  onSelect: () => void;
   onEditDate: () => void;
-  onScanDate: () => void;
+  onRemove: () => void;
 }) {
   return (
-    <Pressable style={styles.card} onPress={onEditDate}>
+    <Pressable
+      style={[styles.card, isSelected && styles.cardSelected]}
+      onPress={onSelect}
+      onLongPress={onEditDate}
+    >
+      {isSelected && <CornerBrackets />}
+
+      <IconButton
+        variant="plain"
+        size="sm"
+        icon={
+          <SymbolView
+            name={{ ios: "xmark", android: "close" }}
+            size={12}
+            tintColor={Colors.textSecondary}
+          />
+        }
+        onPress={onRemove}
+        style={styles.removeBtn}
+      />
+
       <View style={styles.cardImageContainer}>
         {item.product.imageFrontUrl ? (
           <Image
@@ -76,45 +112,33 @@ function SessionItemCard({
           </AppText>
         )}
       </View>
-
-      <View style={styles.cardActions}>
-        <IconButton
-          variant="subtle"
-          size="sm"
-          icon={
-            <SymbolView
-              name={{ ios: "camera.viewfinder", android: "photo_camera" }}
-              size={14}
-              tintColor={Colors.primary}
-            />
-          }
-          onPress={onScanDate}
-        />
-        <IconButton
-          variant="subtle"
-          size="sm"
-          icon={
-            <SymbolView
-              name={{ ios: "xmark", android: "close" }}
-              size={12}
-              tintColor={Colors.textSecondary}
-            />
-          }
-          onPress={onRemove}
-        />
-      </View>
     </Pressable>
   );
 }
 
 const ScanSessionSheet = memo(function ScanSessionSheet({
   items,
+  selectedKey,
+  finalizing,
+  onSelectItem,
   onRemoveItem,
   onEditDate,
-  onScanDate,
   onFinalize,
   onCancel,
 }: Props) {
+  const renderItem = useCallback(
+    ({ item }: { item: SessionItem }) => (
+      <SessionItemCard
+        item={item}
+        isSelected={item.key === selectedKey}
+        onSelect={() => onSelectItem(item.key)}
+        onEditDate={() => onEditDate(item.key)}
+        onRemove={() => onRemoveItem(item.key)}
+      />
+    ),
+    [selectedKey, onSelectItem, onEditDate, onRemoveItem],
+  );
+
   return (
     <SheetWrapper onDismiss={onCancel}>
       <View style={styles.header}>
@@ -123,21 +147,15 @@ const ScanSessionSheet = memo(function ScanSessionSheet({
         </AppText>
       </View>
 
-      <ScrollView
+      <FlatList
         horizontal
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
-      >
-        {items.map((item) => (
-          <SessionItemCard
-            key={item.key}
-            item={item}
-            onRemove={() => onRemoveItem(item.key)}
-            onEditDate={() => onEditDate(item.key)}
-            onScanDate={() => onScanDate(item.key)}
-          />
-        ))}
-      </ScrollView>
+        data={items}
+        keyExtractor={(item) => item.key}
+        renderItem={renderItem}
+        ListEmptyComponent={null}
+      />
 
       <View style={styles.footer}>
         <Button
@@ -152,9 +170,10 @@ const ScanSessionSheet = memo(function ScanSessionSheet({
           variant="primary"
           size="md"
           onPress={onFinalize}
+          disabled={finalizing}
           style={styles.footerBtn}
         >
-          Finalizar
+          {finalizing ? "Guardando…" : "Finalizar"}
         </Button>
       </View>
     </SheetWrapper>
@@ -179,6 +198,54 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     padding: Spacing.sm,
     position: "relative",
+  },
+  cardSelected: {
+    backgroundColor: SELECTED_TINT,
+  },
+  removeBtn: {
+    position: "absolute",
+    top: 2,
+    right: 2,
+    zIndex: 2,
+  },
+  corner: {
+    position: "absolute",
+    width: 14,
+    height: 14,
+    zIndex: 1,
+    pointerEvents: "none",
+  },
+  cornerTL: {
+    top: 2,
+    left: 2,
+    borderTopWidth: 2.5,
+    borderLeftWidth: 2.5,
+    borderColor: Colors.primary,
+    borderTopLeftRadius: BorderRadius.sm,
+  },
+  cornerTR: {
+    top: 2,
+    right: 2,
+    borderTopWidth: 2.5,
+    borderRightWidth: 2.5,
+    borderColor: Colors.primary,
+    borderTopRightRadius: BorderRadius.sm,
+  },
+  cornerBL: {
+    bottom: 2,
+    left: 2,
+    borderBottomWidth: 2.5,
+    borderLeftWidth: 2.5,
+    borderColor: Colors.primary,
+    borderBottomLeftRadius: BorderRadius.sm,
+  },
+  cornerBR: {
+    bottom: 2,
+    right: 2,
+    borderBottomWidth: 2.5,
+    borderRightWidth: 2.5,
+    borderColor: Colors.primary,
+    borderBottomRightRadius: BorderRadius.sm,
   },
   cardImageContainer: {
     width: 60,
@@ -207,12 +274,6 @@ const styles = StyleSheet.create({
   },
   cardDateRow: {
     alignItems: "center",
-  },
-  cardActions: {
-    flexDirection: "row",
-    justifyContent: "center",
-    gap: 4,
-    marginTop: 4,
   },
   footer: {
     flexDirection: "row",

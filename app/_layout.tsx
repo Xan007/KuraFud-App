@@ -31,29 +31,12 @@ class ErrorBoundary extends Component<EBProps, EBState> {
   render() {
     if (this.state.error) {
       return (
-        <View
-          style={{
-            flex: 1,
-            justifyContent: "center",
-            alignItems: "center",
-            padding: 24,
-            backgroundColor: "#fff",
-          }}
-        >
-          <Text
-            style={{
-              fontSize: 18,
-              fontWeight: "700",
-              marginBottom: 12,
-              color: "#333",
-            }}
-          >
+        <View style={ebStyles.container}>
+          <Text style={ebStyles.title}>
             Error al cargar la app
           </Text>
-          <ScrollView style={{ maxHeight: 300, marginBottom: 16 }}>
-            <Text
-              style={{ fontSize: 13, color: "#666", fontFamily: "monospace" }}
-            >
+          <ScrollView style={ebStyles.scrollContainer}>
+            <Text style={ebStyles.detail}>
               {this.state.error.message}
               {"\n\n"}
               {this.state.error.stack}
@@ -61,14 +44,9 @@ class ErrorBoundary extends Component<EBProps, EBState> {
           </ScrollView>
           <Pressable
             onPress={() => this.setState({ error: null })}
-            style={{
-              backgroundColor: Colors.primary,
-              paddingHorizontal: 24,
-              paddingVertical: 12,
-              borderRadius: 8,
-            }}
+            style={ebStyles.retryBtn}
           >
-            <Text style={{ color: "#fff", fontSize: 16, fontWeight: "600" }}>
+            <Text style={ebStyles.retryText}>
               Reintentar
             </Text>
           </Pressable>
@@ -79,11 +57,7 @@ class ErrorBoundary extends Component<EBProps, EBState> {
   }
 }
 
-/**
- * Root layout wrapping the entire app with gesture handling, safe-area
- * support, an error boundary, the Expo Router stack navigator, and
- * notification setup.
- */
+
 export default function RootLayout() {
   const router = useRouter();
 
@@ -128,10 +102,13 @@ export default function RootLayout() {
                 animationDuration: 250,
               }}
             >
-              <Stack.Screen name="(tabs)" options={{ animationEnabled: false }} />
-              <Stack.Screen name="scanner" options={{ animationEnabled: false }} />
-              <Stack.Screen name="add-product" options={{ animationEnabled: false }} />
-              <Stack.Screen name="product/[barcode]" options={{ animationEnabled: false }} />
+              <Stack.Screen name="(tabs)" />
+              <Stack.Screen name="scanner" />
+              <Stack.Screen
+                name="add-product"
+                options={{ gestureEnabled: false }}
+              />
+              <Stack.Screen name="product/[barcode]" />
             </Stack>
           </Host>
         </SafeAreaProvider>
@@ -139,6 +116,42 @@ export default function RootLayout() {
     </GestureHandlerRootView>
   );
 }
+
+const ebStyles = StyleSheet.create({
+  container: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+    backgroundColor: "#fff",
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: "700",
+    marginBottom: 12,
+    color: "#333",
+  },
+  scrollContainer: {
+    maxHeight: 300,
+    marginBottom: 16,
+  },
+  detail: {
+    fontSize: 13,
+    color: "#666",
+    fontFamily: "monospace",
+  },
+  retryBtn: {
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  retryText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+});
 
 const styles = StyleSheet.create({
   host: {

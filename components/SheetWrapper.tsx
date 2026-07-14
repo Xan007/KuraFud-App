@@ -1,17 +1,22 @@
-import { memo, useCallback, useEffect, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useImperativeHandle, useRef, type ReactNode, type Ref } from "react";
 import { Keyboard, Pressable, StyleSheet, View } from "react-native";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
-  withTiming,
   runOnJS,
+  withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Colors, BorderRadius } from "@/constants/theme";
 
+export type SheetWrapperHandle = {
+  dismiss: () => void;
+};
+
 type SheetWrapperProps = {
   onDismiss: () => void;
   children: ReactNode;
+  ref?: Ref<SheetWrapperHandle>;
 };
 
 const SHEET_ANIM_DURATION = 300;
@@ -20,10 +25,38 @@ const DISMISS_ANIM_DURATION = 200;
 const SheetWrapper = memo(function SheetWrapper({
   onDismiss,
   children,
+  ref,
 }: SheetWrapperProps) {
   const insets = useSafeAreaInsets();
   const progress = useSharedValue(0);
   const keyboardOffset = useSharedValue(0);
+
+
+  const onDismissRef = useRef(onDismiss);
+  useEffect(() => {
+    onDismissRef.current = onDismiss;
+  }, [onDismiss]);
+
+
+  const handleDismissComplete = useCallback(() => {
+    onDismissRef.current();
+  }, []);
+
+  const dismiss = useCallback(() => {
+    progress.value = withTiming(0, { duration: DISMISS_ANIM_DURATION }, (finished) => {
+      if (finished) {
+        runOnJS(handleDismissComplete)();
+      }
+    });
+  }, [progress, handleDismissComplete]);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      dismiss,
+    }),
+    [dismiss],
+  );
 
   useEffect(() => {
     progress.value = withTiming(1, { duration: SHEET_ANIM_DURATION });
@@ -42,14 +75,8 @@ const SheetWrapper = memo(function SheetWrapper({
     };
   }, []);
 
-  const dismiss = useCallback(() => {
-    progress.value = withTiming(0, { duration: DISMISS_ANIM_DURATION }, () => {
-      runOnJS(onDismiss)();
-    });
-  }, [onDismiss, progress]);
-
   const rBackdrop = useAnimatedStyle(() => ({
-    opacity: progress.value * 0.2,
+    opacity: progress.value * 0.5,
   }));
 
   const rSheet = useAnimatedStyle(() => ({
@@ -58,7 +85,7 @@ const SheetWrapper = memo(function SheetWrapper({
         translateY: (1 - progress.value) * 300 - keyboardOffset.value,
       },
     ],
-    paddingBottom: insets.bottom + 16,
+    opacity: progress.value < 0.1 ? progress.value * 10 : 1,
   }));
 
   return (
@@ -107,5 +134,6 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.border,
     alignSelf: "center",
     marginBottom: 16,
+    zIndex: 20,
   },
 });

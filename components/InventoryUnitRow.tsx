@@ -1,121 +1,105 @@
-import { memo, useMemo } from "react";
+import { memo } from "react";
 import { View, StyleSheet, Pressable } from "react-native";
+import Animated, { FadeIn } from "react-native-reanimated";
 import { SymbolView } from "expo-symbols";
-import { Colors, Spacing, BorderRadius } from "@/constants/theme";
+import { Colors, Spacing, BorderRadius, withOpacity } from "@/constants/theme";
 import { AppText } from "./ui/Text";
 import type { InventoryItem } from "@/db/schema";
-
-// Helper to parse DD/MM/YYYY to Date (UTC)
-function parseDateString(dateStr: string): Date {
-  if (!dateStr) return new Date(8640000000000000);
-  const [day, month, year] = dateStr.split("/").map(Number);
-  return new Date(Date.UTC(year, month - 1, day));
-}
 
 interface InventoryUnitRowProps {
   item: InventoryItem;
   isExpired: boolean;
   onConsumed: (id: number) => void;
-  onUndo: (id: number) => void;
-  onDelete: (id: number) => void;
+  onEdit: (item: InventoryItem) => void;
+  onDelete?: (id: number) => void;
 }
 
-/**
- * Single inventory unit row (one expiration date instance of a product).
- * Shows the date, actions to consume/edit/delete, and status badges.
- */
+
 export const InventoryUnitRow = memo(function InventoryUnitRow({
   item,
   isExpired,
   onConsumed,
-  onUndo,
+  onEdit,
   onDelete,
 }: InventoryUnitRowProps) {
-  const isConsumed = item.consumedAt !== null;
-
-  const rowOpacity = isConsumed ? 0.6 : 1;
-
   return (
-    <View
-      style={[
-        styles.dateCard,
-        isConsumed && styles.dateCardConsumed,
-        { opacity: rowOpacity },
-      ]}
-    >
-      <View style={styles.dateContent}>
-        <View
-          style={[
-            styles.dateIconContainer,
-            isConsumed && styles.dateIconContainerConsumed,
-            isExpired && !isConsumed && styles.dateIconContainerExpired,
-          ]}
-        >
-          {isConsumed ? (
-            <SymbolView
-              name={{ ios: "checkmark", android: "check" }}
-              size={18}
-              tintColor={Colors.primary}
-            />
-          ) : (
+    <Animated.View entering={FadeIn.duration(180)}>
+      <Pressable
+        style={({ pressed }) => [
+          styles.dateCard,
+          pressed && !isExpired && { opacity: 0.9 },
+        ]}
+        onPress={() => !isExpired && onEdit(item)}
+        disabled={isExpired}
+      >
+        <View style={styles.dateContent}>
+          <View
+            style={[
+              styles.dateIconContainer,
+              isExpired && styles.dateIconContainerExpired,
+            ]}
+          >
             <SymbolView
               name={{ ios: "calendar", android: "calendar_month" }}
               size={18}
               tintColor={isExpired ? Colors.error : Colors.primary}
             />
-          )}
+          </View>
+          <View style={styles.dateInfo}>
+            <AppText variant="subheading" style={{ fontFamily: "monospace" }}>
+              {item.expirationDate || "--/--/----"}
+            </AppText>
+            {item.notes ? (
+              <AppText
+                variant="caption"
+                color={Colors.textSecondary}
+                numberOfLines={1}
+              >
+                {item.notes}
+              </AppText>
+            ) : null}
+            {isExpired ? (
+              <AppText variant="caption" color={Colors.error}>
+                Vencido
+              </AppText>
+            ) : null}
+          </View>
         </View>
-        <View style={styles.dateInfo}>
-          <AppText variant="subheading" style={{ fontFamily: "monospace" }}>
-            {item.expirationDate || "--/--/----"}
-          </AppText>
-          {item.notes && (
-            <AppText variant="caption" color={Colors.textSecondary} numberOfLines={1}>
-              {item.notes}
-            </AppText>
-          )}
-          {isExpired && !isConsumed && (
-            <AppText variant="caption" color={Colors.error}>
-              Vencido
-            </AppText>
-          )}
-          {isConsumed && (
-            <AppText variant="caption" color={Colors.primary}>
-              ✓ Consumido
-            </AppText>
-          )}
-        </View>
-      </View>
 
-      <View style={styles.dateActions}>
-        {isConsumed ? (
-          <Pressable onPress={() => onUndo(item.id)} hitSlop={12}>
-            <SymbolView
-              name={{ ios: "arrow.uturn.left", android: "undo" }}
-              size={16}
-              tintColor={Colors.primary}
-            />
-          </Pressable>
-        ) : (
-          <>
-            <Pressable onPress={() => onConsumed(item.id)} hitSlop={12}>
+        <View style={styles.actionsRow}>
+          {isExpired && onDelete ? (
+            <Pressable
+              onPress={(e) => {
+                e.stopPropagation?.();
+                onDelete(item.id);
+              }}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 6 }}
+              style={styles.actionButton}
+            >
               <SymbolView
-                name={{ ios: "checkmark.circle", android: "check_circle" }}
-                size={16}
-                tintColor={Colors.primary}
-              />
-            </Pressable>
-            <Pressable onPress={() => onDelete(item.id)} hitSlop={12}>
-              <SymbolView
-                name={{ ios: "trash.fill", android: "delete" }}
-                size={16}
+                name={{ ios: "trash", android: "delete" }}
+                size={20}
                 tintColor={Colors.error}
               />
             </Pressable>
-          </>
-        )}
-      </View>
-    </View>
+          ) : null}
+          <Pressable
+            onPress={(e) => {
+              e.stopPropagation?.();
+              onConsumed(item.id);
+            }}
+            hitSlop={{ top: 12, bottom: 12, left: 6, right: 12 }}
+            style={styles.actionButton}
+          >
+            <SymbolView
+              name={{ ios: "fork.knife", android: "restaurant" }}
+              size={22}
+              tintColor={isExpired ? Colors.error : Colors.textSecondary}
+            />
+          </Pressable>
+        </View>
+      </Pressable>
+    </Animated.View>
   );
 });
 
@@ -131,11 +115,7 @@ const styles = StyleSheet.create({
     borderCurve: "continuous",
     marginBottom: Spacing.md,
     gap: Spacing.md,
-  },
-  dateCardConsumed: {
-    backgroundColor: Colors.background,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    overflow: "hidden",
   },
   dateContent: {
     flexDirection: "row",
@@ -147,25 +127,29 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: BorderRadius.sm,
-    backgroundColor: Colors.primary + "15",
+    backgroundColor: withOpacity(Colors.primary, 0.18),
     justifyContent: "center",
     alignItems: "center",
     flexShrink: 0,
   },
   dateIconContainerExpired: {
-    backgroundColor: Colors.error + "15",
-  },
-  dateIconContainerConsumed: {
-    backgroundColor: Colors.primary + "10",
+    backgroundColor: withOpacity(Colors.error, 0.18),
   },
   dateInfo: {
     flex: 1,
     gap: Spacing.xs,
   },
-  dateActions: {
+  actionsRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: Spacing.md,
+    gap: Spacing.lg,
+    flexShrink: 0,
+  },
+  actionButton: {
+    padding: Spacing.xs,
+    justifyContent: "center",
+    alignItems: "center",
+    flexShrink: 0,
   },
 });
 

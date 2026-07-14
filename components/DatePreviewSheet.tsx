@@ -1,6 +1,6 @@
-import { memo, useCallback, useEffect, useState } from "react";
-import { Image, Pressable, StyleSheet, Text, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { memo, useCallback, useState } from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Image } from "expo-image";
 import { Colors } from "@/constants/theme";
 import { DatePickerDialog } from "@expo/ui/jetpack-compose";
 import SheetWrapper from "@/components/SheetWrapper";
@@ -12,17 +12,13 @@ type Props = {
   onCancel: () => void;
 };
 
-/**
- * Bottom sheet that shows the cropped photo preview and the detected date,
- * letting the user confirm, edit, or cancel the result.
- */
+
 const DatePreviewSheet = memo(function DatePreviewSheet({
   date: initialDate,
   photoPath,
   onConfirm,
   onCancel,
 }: Props) {
-  const insets = useSafeAreaInsets();
   const [date, setDate] = useState(initialDate);
   const [showPicker, setShowPicker] = useState(false);
 

@@ -1,187 +1,787 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useLocalSearchParams } from "expo-router";
-import { SymbolView } from "expo-symbols";
-import Animated, { FadeIn } from "react-native-reanimated";
+import { useFocusEffect } from "expo-router";
 import {
-  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   View,
+  Linking,
 } from "react-native";
+import Animated, {
+  LinearTransition,
+  LayoutAnimationConfig,
+} from "react-native-reanimated";
+import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { lookupProduct } from "services/productService";
-import type { ProductInfo } from "types";
-import { Colors } from "@/constants/theme";
-import ExpandableText from "components/ExpandableText";
-import NutritionTable from "components/NutritionTable";
-import ProductImages from "components/ProductImages";
-import TopBar from "components/TopBar";
+import { SymbolView } from "expo-symbols";
 
-type Status = "loading" | "result" | "not-found";
+import { Colors, Spacing, BorderRadius } from "@/constants/theme";
+import TopBar from "@/components/TopBar";
+import { InventoryUnitRow } from "@/components/InventoryUnitRow";
+import { EditUnitSheet } from "@/components/EditUnitSheet";
+import { DateTimePickerSheet } from "@/components/DateTimePickerSheet";
+import { ConfirmSheet } from "@/components/ConfirmSheet";
+import { Snackbar, type SnackbarState } from "@/components/Snackbar";
+import { Badge } from "@/components/ui/Badge";
+import { LoadingState } from "@/components/ui/LoadingState";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { Button } from "@/components/ui/Button";
+import { AppText } from "@/components/ui/Text";
+import { ProductDetailInfo } from "@/components/ProductDetailInfo";
+import { ImageViewer } from "@/components/ImageViewer";
+import {
+  productRepository,
+  inventoryRepository,
+  notificationSettingsRepository,
+} from "@/db/repositories";
+import type { InventoryItem, ProductWithInventory } from "@/db/schema";
+import { formatDateString, parseDateString, isExpired } from "@/helpers/format";
+import { isManualBarcode } from "@/helpers/manualProduct";
+import { rebuildAllReminders } from "@/services/notifications";
+import { useAppTranslation } from "@/hooks/useAppTranslation";
 
-/**
- * Product detail screen reached via `/product/:barcode`.
- * Looks up the product from Open Food Facts and displays its images,
- * ingredients, categories, and nutrition table.
- */
+type Tab = "inventory" | "info";
+
+type InventoryWithSnap = InventoryItem & {
+
+  productName: string;
+  productBrand: string;
+  productImage: string;
+  barcode: string;
+};
+
+
 export default function ProductScreen() {
   const { barcode } = useLocalSearchParams<{ barcode: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [product, setProduct] = useState<ProductInfo | null>(null);
-  const [status, setStatus] = useState<Status>("loading");
+  const { t } = useAppTranslation();
 
-  useEffect(() => {
+  const [loading, setLoading] = useState(true);
+  const [productSnap, setProductSnap] = useState<ProductWithInventory | null>(null);
+  const [items, setItems] = useState<InventoryWithSnap[]>([]);
+  const [tab, setTab] = useState<Tab>("inventory");
+
+
+  const [showEditSheet, setShowEditSheet] = useState(false);
+  const [editingItemId, setEditingItemId] = useState<number | null>(null);
+  const [pickerDate, setPickerDate] = useState(new Date());
+
+
+  const [showAddSheet, setShowAddSheet] = useState(false);
+  const addDateRef = useRef(new Date());
+
+
+  const [imageViewerOpen, setImageViewerOpen] = useState(false);
+
+
+  const [snackbar, setSnackbar] = useState<SnackbarState | null>(null);
+  const snackbarIdRef = useRef(0);
+
+  const isManual = isManualBarcode(barcode);
+
+  const todayUTC = useMemo(() => {
+    const now = new Date();
+    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  }, []);
+
+  const loadProduct = useCallback(async () => {
     if (!barcode) return;
-    const MIN = 300;
-    const start = Date.now();
-    lookupProduct(barcode)
-      .then((p) => {
-        const elapsed = Date.now() - start;
-        const remaining = Math.max(0, MIN - elapsed);
-        setTimeout(() => {
-          if (p) {
-            setProduct(p);
-            setStatus("result");
-          } else {
-            setStatus("not-found");
-          }
-        }, remaining);
-      })
-      .catch(() => {
-        const elapsed = Date.now() - start;
-        const remaining = Math.max(0, MIN - elapsed);
-        setTimeout(() => setStatus("not-found"), remaining);
-      });
-  }, [barcode]);
+    try {
+      const product = await productRepository.getProduct(barcode);
+      if (product) {
+        setProductSnap(product);
+        const mapped: InventoryWithSnap[] = product.inventory
+          .filter((inv) => inv.consumedAt === null)
+          .map((inv) => ({
+            ...inv,
+            productName: product.name || t("product.title"),
+            productBrand: product.brand || "",
+            productImage: product.imageFrontUrl || "",
+            barcode,
+          }));
+        setItems(mapped);
+      }
+    } catch (e) {
+      console.error("Error loading product:", e);
+    } finally {
+      setLoading(false);
+    }
+  }, [barcode, t]);
 
-  if (status === "loading") {
+  const rebuildRemindersIfEnabled = useCallback(async () => {
+    try {
+      const settings = await notificationSettingsRepository.getNotificationSettings();
+      if (settings.enabled) await rebuildAllReminders();
+    } catch {
+
+    }
+  }, []);
+
+
+  const pendingDeleteRef = useRef<{ id: number; item: InventoryWithSnap } | null>(null);
+
+  const flushPendingDelete = useCallback(async () => {
+    const pending = pendingDeleteRef.current;
+    if (!pending) return;
+    pendingDeleteRef.current = null;
+    try {
+      await inventoryRepository.deleteInventoryItem(pending.id);
+      rebuildRemindersIfEnabled();
+    } catch {
+
+    }
+  }, [rebuildRemindersIfEnabled]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadProduct();
+
+      return () => {
+        flushPendingDelete();
+      };
+    }, [loadProduct, flushPendingDelete]),
+  );
+
+  const showSnackbar = useCallback(
+    (s: Omit<SnackbarState, "id">) => {
+
+      flushPendingDelete();
+      const id = ++snackbarIdRef.current;
+      setSnackbar({ id, ...s });
+    },
+    [flushPendingDelete],
+  );
+
+  const handleSnackbarDismiss = useCallback(() => {
+    setSnackbar(null);
+    flushPendingDelete();
+  }, [flushPendingDelete]);
+
+
+  const handleEditDate = useCallback((item: InventoryItem) => {
+    setPickerDate(item.expirationDate ? parseDateString(item.expirationDate) : new Date());
+    setEditingItemId(item.id);
+    setShowEditSheet(true);
+  }, []);
+
+  const handleAddDate = useCallback(() => {
+    const today = new Date();
+    const startOfToday = new Date(
+      Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()),
+    );
+    addDateRef.current = startOfToday;
+    setShowAddSheet(true);
+  }, []);
+
+  const handleAddDateConfirm = useCallback(async () => {
+    const formattedDate = formatDateString(addDateRef.current);
+    setShowAddSheet(false);
+
+    await flushPendingDelete();
+
+    try {
+      const saved = await inventoryRepository.addInventoryItem({
+        barcode: barcode!,
+        expirationDate: formattedDate,
+        createdAt: new Date(),
+      });
+      setItems((prev) => [
+        ...prev,
+        {
+          ...saved,
+          productName: productSnap?.name || t("product.title"),
+          productBrand: productSnap?.brand || "",
+          productImage: productSnap?.imageFrontUrl || "",
+          barcode: barcode!,
+        },
+      ]);
+      rebuildRemindersIfEnabled();
+    } catch {
+
+    }
+  }, [barcode, productSnap, t, flushPendingDelete, rebuildRemindersIfEnabled]);
+
+  const handleGoogleSearch = () => {
+    const name = productSnap?.name || "";
+    const url = `https://www.google.com/search?q=${encodeURIComponent(`${barcode} ${name}`)}`;
+    Linking.openURL(url).catch(() => {});
+  };
+
+  const handleDatePickerConfirm = useCallback(async () => {
+    try {
+      const formattedDate = formatDateString(pickerDate);
+      const editingId = editingItemId;
+      setEditingItemId(null);
+
+
+      await flushPendingDelete();
+
+      if (editingId === null) {
+
+        try {
+          const saved = await inventoryRepository.addInventoryItem({
+            barcode: barcode!,
+            expirationDate: formattedDate,
+            createdAt: new Date(),
+          });
+          setItems((prev) => [
+            ...prev,
+            {
+              ...saved,
+              productName: productSnap?.name || t("product.title"),
+              productBrand: productSnap?.brand || "",
+              productImage: productSnap?.imageFrontUrl || "",
+              barcode: barcode!,
+            },
+          ]);
+          rebuildRemindersIfEnabled();
+        } catch {
+
+        }
+      } else {
+
+        setItems((prev) =>
+          prev.map((i) => (i.id === editingId ? { ...i, expirationDate: formattedDate } : i)),
+        );
+        try {
+          await inventoryRepository.updateInventoryItem(editingId, {
+            expirationDate: formattedDate,
+          });
+          rebuildRemindersIfEnabled();
+        } catch {
+          await loadProduct();
+        }
+      }
+    } catch {
+
+    }
+  }, [
+    pickerDate,
+    editingItemId,
+    barcode,
+    productSnap,
+    t,
+    flushPendingDelete,
+    rebuildRemindersIfEnabled,
+    loadProduct,
+  ]);
+
+
+  const [confirmSheet, setConfirmSheet] = useState<{
+    type: "consume" | "delete";
+    id: number;
+    isExpired?: boolean;
+  } | null>(null);
+
+  const deleteUnit = useCallback(
+    (id: number) => {
+      const item = items.find((i) => i.id === id);
+      if (!item) return;
+
+      setItems((prev) => prev.filter((i) => i.id !== id));
+      showSnackbar({
+        message: t("messages.unitDeleted"),
+        actionLabel: t("messages.undoAction"),
+        onAction: () => {
+          pendingDeleteRef.current = null;
+          setItems((prev) => (prev.some((i) => i.id === id) ? prev : [...prev, item]));
+        },
+      });
+
+      pendingDeleteRef.current = { id, item };
+    },
+    [items, t, showSnackbar],
+  );
+
+  const consumeUnit = useCallback(
+    async (id: number) => {
+      const item = items.find((i) => i.id === id);
+      if (!item) return;
+      setItems((prev) => prev.filter((i) => i.id !== id));
+      try {
+        await inventoryRepository.markAsConsumed(id);
+        rebuildRemindersIfEnabled();
+      } catch {
+
+      }
+      showSnackbar({
+        message: t("messages.markedAsConsumed"),
+        actionLabel: t("messages.undoAction"),
+        onAction: async () => {
+          setItems((prev) => (prev.some((i) => i.id === id) ? prev : [...prev, item]));
+          try {
+            await inventoryRepository.undoConsumed(id);
+            rebuildRemindersIfEnabled();
+          } catch {
+
+          }
+        },
+      });
+    },
+    [items, t, showSnackbar, rebuildRemindersIfEnabled],
+  );
+
+  const handleConsumed = useCallback(
+    (id: number) => {
+      const item = items.find((i) => i.id === id);
+      setConfirmSheet({
+        type: "consume",
+        id,
+        isExpired: item ? isExpired(item.expirationDate) : false,
+      });
+    },
+    [items],
+  );
+
+  const handleDeleteFromRow = useCallback((id: number) => {
+    setConfirmSheet({ type: "delete", id });
+  }, []);
+
+  const handleConfirmSheetConfirm = useCallback(async () => {
+    if (!confirmSheet) return;
+    const { id, type } = confirmSheet;
+    setConfirmSheet(null);
+    if (type === "delete") {
+      deleteUnit(id);
+    } else {
+      await consumeUnit(id);
+    }
+  }, [confirmSheet, deleteUnit, consumeUnit]);
+
+  const handleDeleteUnit = useCallback(() => {
+    if (editingItemId === null) return;
+    deleteUnit(editingItemId);
+    setEditingItemId(null);
+  }, [editingItemId, deleteUnit]);
+
+  const sortedItems = useMemo(() => {
+    return [...items].sort((a, b) => {
+      const aExpired = isExpired(a.expirationDate);
+      const bExpired = isExpired(b.expirationDate);
+      if (aExpired !== bExpired) return aExpired ? 1 : -1;
+      return (
+        parseDateString(a.expirationDate).getTime() -
+        parseDateString(b.expirationDate).getTime()
+      );
+    });
+  }, [items]);
+
+  const nearestExpiry = sortedItems[0]?.expirationDate || "";
+
+  const totalUnits = items.length;
+
+  if (loading) {
     return (
-      <View style={styles.loadingContainer}>
-        <View style={styles.loadingCenter}>
-          <ActivityIndicator size="large" color={Colors.primary} />
-          <Text style={styles.loadingMsg}>Buscando producto...</Text>
-        </View>
-        <Pressable style={styles.cancelBtn} onPress={() => router.back()}>
-          <Text style={styles.cancelBtnText}>Cancelar</Text>
-        </Pressable>
+      <View style={styles.container}>
+        <TopBar title={t("product.title")} showBack onBack={() => router.back()} />
+        <LoadingState message={t("common.loading")} />
       </View>
     );
   }
 
-  if (status === "not-found") {
-    return (
-      <Animated.View entering={FadeIn} style={styles.center}>
-        <Text style={styles.code}>{barcode}</Text>
-        <Text style={styles.msg}>
-          Producto no encontrado en Open Food Facts
-        </Text>
-        <Pressable style={styles.btn} onPress={() => router.back()}>
-          <Text style={styles.btnText}>Volver</Text>
-        </Pressable>
-      </Animated.View>
-    );
-  }
-
-  const p = product!;
-  const images = [
-    p.imageFrontUrl,
-    p.imageBackUrl,
-    p.imagePackagingUrl,
-    p.imageNutritionUrl,
-    p.imageIngredientsUrl,
-  ].filter(Boolean);
+  const headerImage = productSnap?.imageFrontUrl ?? "";
+  const headerName = productSnap?.name || t("product.title");
+  const headerBrand = productSnap?.brand || "";
 
   return (
-    <Animated.View entering={FadeIn} style={styles.container}>
-      <TopBar showBack onBack={() => router.back()} title="Expirat" />
+    <View style={styles.container}>
+      <TopBar
+        title={isManual ? t("product.badgeManualLong") : t("product.title")}
+        showBack
+        onBack={() => router.back()}
+        rightSlot={
+          !isManual && barcode ? (
+            <Pressable onPress={handleGoogleSearch} hitSlop={10} style={styles.searchGlobeBtn}>
+              <SymbolView
+                name={{ ios: "globe", android: "public" }}
+                size={20}
+                tintColor={Colors.primary}
+              />
+              <View style={styles.searchGlobeMagnifier}>
+                <SymbolView
+                  name={{ ios: "magnifyingglass", android: "search" }}
+                  size={11}
+                  tintColor={Colors.primary}
+                />
+              </View>
+            </Pressable>
+          ) : null
+        }
+      />
 
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-      >
-        <ProductImages images={images} />
 
-        <View>
-          <Text style={styles.name}>{p.name}</Text>
-          {p.brand ? <Text style={styles.brand}>{p.brand}</Text> : null}
-          {p.quantity ? (
-            <Text style={styles.detail}>Cantidad: {p.quantity}</Text>
+      <View style={styles.header}>
+        <Pressable
+          style={styles.imageContainer}
+          onPress={() => headerImage && setImageViewerOpen(true)}
+          disabled={!headerImage}
+        >
+          {headerImage ? (
+            <Image
+              source={{ uri: headerImage }}
+              style={styles.productImage}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+            />
+          ) : (
+            <View style={styles.imagePlaceholder}>
+              <SymbolView
+                name={{ ios: "photo", android: "image" }}
+                size={24}
+                tintColor={Colors.textSecondary}
+              />
+            </View>
+          )}
+        </Pressable>
+        <View style={styles.headerText}>
+          <AppText variant="subheading" numberOfLines={2}>
+            {headerName}
+          </AppText>
+          {headerBrand ? (
+            <AppText variant="body" color={Colors.textSecondary} numberOfLines={1}>
+              {headerBrand}
+            </AppText>
           ) : null}
-          <ExpandableText label="Ingredientes" text={p.ingredients} />
-          <ExpandableText label="Categorias" text={p.categories} />
-          {p.nutriscore ? (
-            <Text style={styles.detail}>
-              Nutriscore: {p.nutriscore.toUpperCase()}
-            </Text>
+          {isManual ? (
+            <View style={styles.badgeWrap}>
+              <Badge label={t("product.badgeManual")} tone="neutral" />
+            </View>
+          ) : null}
+          {totalUnits > 0 && nearestExpiry ? (
+            <View style={styles.headerMeta}>
+              <AppText variant="caption" color={Colors.textSecondary}>
+                {totalUnits} {totalUnits === 1 ? "unidad" : "unidades"}
+              </AppText>
+              <AppText variant="caption" color={Colors.textSecondary}>
+                •
+              </AppText>
+              <AppText
+                variant="caption"
+                color={isExpired(nearestExpiry) ? Colors.error : Colors.textSecondary}
+                style={isExpired(nearestExpiry) && { fontWeight: "600" }}
+              >
+                {nearestExpiry}
+              </AppText>
+            </View>
           ) : null}
         </View>
+      </View>
 
-        <NutritionTable
-          nutriments={p.nutriments}
-          servingSize={p.servingSize}
-          servingsPerContainer={p.servingsPerContainer}
-          servingQuantity={p.servingQuantity}
+
+      <View style={styles.tabsRow}>
+        <TabButton
+          active={tab === "inventory"}
+          onPress={() => setTab("inventory")}
+          label={t("product.tabInventory")}
         />
-      </ScrollView>
-    </Animated.View>
+        <TabButton
+          active={tab === "info"}
+          onPress={() => setTab("info")}
+          label={t("product.tabInfo")}
+          disabled={false}
+        />
+      </View>
+
+      {tab === "inventory" ? (
+        <LayoutAnimationConfig skipEntering>
+        <Animated.FlatList
+          data={sortedItems}
+          keyExtractor={(item) => `${item.id}`}
+          itemLayoutAnimation={LinearTransition.duration(220)}
+          contentContainerStyle={[
+            styles.listContent,
+            { paddingBottom: insets.bottom + 80 },
+          ]}
+          renderItem={({ item }: { item: InventoryWithSnap }) => (
+            <InventoryUnitRow
+              item={item}
+              isExpired={isExpired(item.expirationDate)}
+              onConsumed={handleConsumed}
+              onEdit={handleEditDate}
+              onDelete={handleDeleteFromRow}
+            />
+          )}
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <SymbolView
+                name={{ ios: "cube.fill", android: "inventory_2" }}
+                size={40}
+                tintColor={Colors.textSecondary}
+              />
+              <AppText variant="body" color={Colors.textSecondary}>
+                {t("product.noUnits")}
+              </AppText>
+            </View>
+          }
+          ListFooterComponent={
+            <Pressable
+              style={({ pressed }) => [styles.addButton, pressed && { opacity: 0.85 }]}
+              onPress={handleAddDate}
+            >
+              <SymbolView
+                name={{ ios: "plus", android: "add" }}
+                size={18}
+                tintColor="#fff"
+              />
+              <AppText variant="button" color={Colors.white}>
+                {t("product.addUnit")}
+              </AppText>
+            </Pressable>
+          }
+        />
+        </LayoutAnimationConfig>
+      ) : (
+        <ProductDetailInfo
+          barcode={barcode || ""}
+          localSnapshot={{
+            name: headerName,
+            brand: headerBrand,
+            imageFrontUrl: headerImage,
+          }}
+          t={t}
+        />
+      )}
+
+      <EditUnitSheet
+        visible={showEditSheet}
+        date={pickerDate}
+        onChangeDate={setPickerDate}
+        onCancel={() => setShowEditSheet(false)}
+        onConfirm={handleDatePickerConfirm}
+        onDelete={handleDeleteUnit}
+        showDelete={true}
+        confirmLabel={t("common.save")}
+        cancelLabel={t("common.cancel")}
+        sheetTitle={t("product.editUnitSheetTitle")}
+        deleteConfirmTitle={t("product.deleteConfirmTitle")}
+        deleteConfirmBody={t("product.deleteConfirmBody")}
+        deleteConfirmLabel={t("product.deleteConfirmLabel")}
+        deleteCancelLabel={t("common.cancel")}
+        labels={{
+          day: t("product.labelDay"),
+          month: t("product.labelMonth"),
+          year: t("product.labelYear"),
+        }}
+        orderByLabel={t("product.selectOrderBy")}
+        orderDmyLabel={t("product.orderDmy")}
+        orderMdyLabel={t("product.orderMdy")}
+        monthModeByLabel={t("product.selectMonthModeBy")}
+        monthModeNumberLabel={t("product.monthModeNumber")}
+        monthModeNameLabel={t("product.monthModeName")}
+        minDate={todayUTC}
+      />
+
+      <DateTimePickerSheet
+        visible={showAddSheet}
+        mode="date"
+        value={addDateRef.current}
+        onChange={(date) => { addDateRef.current = date; }}
+        onCancel={() => setShowAddSheet(false)}
+        onConfirm={handleAddDateConfirm}
+      />
+
+      <ImageViewer
+        images={headerImage ? [headerImage] : []}
+        visible={imageViewerOpen}
+        onClose={() => setImageViewerOpen(false)}
+      />
+
+      <ConfirmSheet
+        visible={confirmSheet !== null}
+        icon={
+          confirmSheet?.type === "delete"
+            ? { ios: "trash", android: "delete" }
+            : confirmSheet?.isExpired
+              ? { ios: "exclamationmark.triangle", android: "warning" }
+              : { ios: "fork.knife", android: "restaurant" }
+        }
+        iconColor={
+          confirmSheet?.type === "delete" || confirmSheet?.isExpired
+            ? Colors.error
+            : Colors.primary
+        }
+        title={
+          confirmSheet?.type === "delete"
+            ? t("product.deleteConfirmTitle")
+            : confirmSheet?.isExpired
+              ? t("product.markConsumedExpiredTitle")
+              : t("product.markConsumedTitle")
+        }
+        body={
+          confirmSheet?.type === "delete"
+            ? t("product.deleteRowConfirmBody")
+            : confirmSheet?.isExpired
+              ? t("product.markConsumedExpiredBody")
+              : t("product.markConsumedBody")
+        }
+        confirmLabel={
+          confirmSheet?.type === "delete"
+            ? t("product.deleteConfirmLabel")
+            : confirmSheet?.isExpired
+              ? t("product.markConsumedExpiredConfirm")
+              : t("product.markConsumedConfirm")
+        }
+        cancelLabel={t("common.cancel")}
+        variant={
+          confirmSheet?.type === "delete" || confirmSheet?.isExpired
+            ? "error"
+            : "primary"
+        }
+        onConfirm={handleConfirmSheetConfirm}
+        onCancel={() => setConfirmSheet(null)}
+      />
+
+      <Snackbar snackbar={snackbar} onDismiss={handleSnackbarDismiss} />
+    </View>
+  );
+}
+
+
+
+function TabButton({
+  active,
+  onPress,
+  label,
+  disabled,
+}: {
+  active: boolean;
+  onPress: () => void;
+  label: string;
+  disabled?: boolean;
+}) {
+  return (
+    <Pressable
+      style={[
+        styles.tabButton,
+        active ? styles.tabButtonActive : styles.tabButtonIdle,
+        disabled && styles.tabButtonDisabled,
+      ]}
+      onPress={onPress}
+      disabled={disabled}
+    >
+      <AppText
+        variant="button"
+        color={active ? Colors.white : disabled ? Colors.textSecondary : Colors.text}
+      >
+        {label}
+      </AppText>
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
-  scrollView: { flex: 1 },
-  scrollContent: { padding: 16, paddingBottom: 100 },
-  name: { fontSize: 22, fontWeight: "700", marginBottom: 4 },
-  brand: { fontSize: 16, color: Colors.textSecondary, marginBottom: 12 },
-  detail: { fontSize: 14, marginBottom: 6, lineHeight: 20 },
-
-  center: {
+  container: {
     flex: 1,
+    backgroundColor: Colors.background,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+  },
+  imageContainer: {
+    width: 72,
+    height: 72,
+    borderRadius: BorderRadius.md,
+    overflow: "hidden",
+    backgroundColor: Colors.surface,
+    flexShrink: 0,
+  },
+  productImage: {
+    width: "100%",
+    height: "100%",
+  },
+  imagePlaceholder: {
+    width: "100%",
+    height: "100%",
     justifyContent: "center",
     alignItems: "center",
-    padding: 24,
-  },
-  msg: { fontSize: 16, marginBottom: 16, textAlign: "center" },
-  code: {
-    fontSize: 20,
-    fontWeight: "700",
-    marginBottom: 12,
-    fontFamily: "monospace",
-  },
-  btn: {
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 10,
-    marginTop: 8,
-    borderCurve: "continuous",
-  },
-  btnText: { color: "#fff", fontSize: 16, fontWeight: "600" },
-
-  loadingContainer: { flex: 1, backgroundColor: Colors.background },
-  loadingCenter: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 24,
-  },
-  loadingMsg: {
-    fontSize: 16,
-    color: Colors.textSecondary,
-    marginTop: 16,
-    fontWeight: "500",
-  },
-  cancelBtn: {
-    alignSelf: "center",
-    marginBottom: 40,
-    paddingHorizontal: 32,
-    paddingVertical: 14,
-    borderRadius: 12,
-    borderCurve: "continuous",
     backgroundColor: Colors.surface,
   },
-  cancelBtnText: { fontSize: 16, fontWeight: "600", color: Colors.text },
+  headerText: {
+    flex: 1,
+    gap: 4,
+    justifyContent: "center",
+  },
+  badgeWrap: {
+    marginTop: 2,
+  },
+  headerMeta: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    marginTop: 2,
+  },
+  tabsRow: {
+    flexDirection: "row",
+    gap: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.sm,
+  },
+  tabButton: {
+    flex: 1,
+    paddingVertical: Spacing.sm + 2,
+    borderRadius: BorderRadius.md,
+    borderCurve: "continuous",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tabButtonActive: {
+    backgroundColor: Colors.primary,
+  },
+  tabButtonIdle: {
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  tabButtonDisabled: {
+    opacity: 0.5,
+  },
+  listContent: {
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.sm,
+  },
+  emptyContainer: {
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: Spacing.xl,
+    gap: Spacing.sm,
+  },
+  addButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: Spacing.sm,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+    backgroundColor: Colors.primary,
+    borderRadius: BorderRadius.md,
+    borderCurve: "continuous",
+    marginTop: Spacing.sm,
+    marginBottom: Spacing.lg,
+  },
+  searchGlobeBtn: {
+    position: "relative",
+    width: 36,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  searchGlobeMagnifier: {
+    position: "absolute",
+    bottom: -2,
+    right: -4,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: Colors.background,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: Colors.background,
+  },
 });

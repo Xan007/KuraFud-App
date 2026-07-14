@@ -9,10 +9,7 @@ interface ChipProps extends Omit<PressableProps, "style" | "children"> {
   style?: any;
 }
 
-/**
- * Unified pill/chip toggle component.
- * Used for quick-add offset chips in SettingsScreen.
- */
+
 export function Chip({
   label,
   selected = false,
@@ -24,8 +21,8 @@ export function Chip({
   const backgroundColor = disabled
     ? Colors.border
     : selected
-      ? withOpacity(Colors.primary, 0.2)
-      : withOpacity(Colors.primary, 0.2);
+      ? withOpacity(Colors.primary, 0.25)
+      : withOpacity(Colors.primary, 0.08);
 
   const borderColor = disabled ? Colors.textSecondary : Colors.primary;
 

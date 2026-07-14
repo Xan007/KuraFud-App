@@ -8,11 +8,7 @@ interface EmptyStateProps {
   subtitle?: string;
 }
 
-/**
- * Unified empty state component (icon + title + subtitle centered).
- * Replaces three separate implementations across HomeScreen, InventoryScreen,
- * app/product/[barcode]/inventory.tsx, and KitchenScreen placeholder.
- */
+
 export function EmptyState({ icon, title, subtitle }: EmptyStateProps) {
   return (
     <View style={styles.container}>

@@ -14,23 +14,17 @@ type GuideLayout = {
 type Props = {
   onLayoutGuide?: (layout: GuideLayout) => void;
   statusText?: string;
+  countdownSeconds?: number | null;
 };
 
 const GUIDES = 60;
 const CORNER = 24;
 
-/**
- * Non-blocking overlay shown when auto-scanning an expiration date.
- * Paints corner guide brackets (used for ROI cropping) and a floating
- * status pill.  Does NOT block barcode scanning — pointerEvents="none"
- * on the entire overlay.
- *
- * The corner-guide onLayout is still required: it feeds computeRoiRect
- * so the OCR pipeline can crop to the date area for better accuracy.
- */
+
 const DateScannerOverlay = memo(function DateScannerOverlay({
   onLayoutGuide,
   statusText,
+  countdownSeconds,
 }: Props) {
   const insets = useSafeAreaInsets();
   const guideBoxRef = useRef<View>(null);
@@ -53,14 +47,23 @@ const DateScannerOverlay = memo(function DateScannerOverlay({
       style={[StyleSheet.absoluteFill, styles.overlay]}
       pointerEvents="none"
     >
-      {/* Floating status pill near the top */}
+
       <View style={[styles.statusPill, { top: insets.top + 12 }]}>
         <AppText variant="caption" color={Colors.white}>
           {statusText ?? "Buscando la fecha automáticamente…"}
         </AppText>
       </View>
 
-      {/* Corner guide box centered vertically */}
+
+      {countdownSeconds !== null && (
+        <View style={[styles.countdownBadge, { top: insets.top + 80, right: 16 }]}>
+          <AppText variant="caption" color={Colors.white} style={styles.countdownText}>
+            {countdownSeconds}s
+          </AppText>
+        </View>
+      )}
+
+
       <View style={styles.guideRow}>
         <View
           ref={guideBoxRef}
@@ -89,6 +92,18 @@ const styles = StyleSheet.create({
     left: 32,
     right: 32,
     alignItems: "center",
+  },
+  countdownBadge: {
+    position: "absolute",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: Colors.primary,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  countdownText: {
+    fontWeight: "600",
   },
   guideRow: {
     flex: 1,

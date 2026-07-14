@@ -13,11 +13,7 @@ interface DateTimePickerSheetProps {
   onConfirm: () => void;
 }
 
-/**
- * Unified date/time picker sheet component (iOS + Android).
- * Replaces duplicate modal implementations in SettingsScreen and
- * app/product/[barcode]/inventory.tsx.
- */
+
 export function DateTimePickerSheet({
   visible,
   mode,
@@ -28,7 +24,7 @@ export function DateTimePickerSheet({
 }: DateTimePickerSheetProps) {
   if (!visible) return null;
 
-  // Android uses native picker dialog
+
   if (Platform.OS === "android") {
     return (
       <DateTimePicker
@@ -48,7 +44,7 @@ export function DateTimePickerSheet({
     );
   }
 
-  // iOS uses a custom sheet with spinner picker
+
   return (
     <Host style={styles.hostContainer}>
       <View style={styles.sheet}>

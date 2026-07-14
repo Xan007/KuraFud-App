@@ -11,6 +11,7 @@ export type UseAutoDateScannerParams = {
   captureCandidate: () => Promise<Candidate | null>;
   onAccepted: (date: string, photoPath: string) => void;
   onExhausted?: () => void;
+  onProgress?: (progress: ScanProgress) => void;
   continuous?: boolean;
 };
 
@@ -24,6 +25,7 @@ export function useAutoDateScanner({
   captureCandidate,
   onAccepted,
   onExhausted,
+  onProgress,
   continuous = false,
 }: UseAutoDateScannerParams): UseAutoDateScanner {
   const [progress, setProgress] = useState<ScanProgress | null>(null);
@@ -31,9 +33,11 @@ export function useAutoDateScanner({
   const captureRef = useRef(captureCandidate);
   const acceptedRef = useRef(onAccepted);
   const exhaustedRef = useRef(onExhausted);
+  const progressRef = useRef(onProgress);
   captureRef.current = captureCandidate;
   acceptedRef.current = onAccepted;
   exhaustedRef.current = onExhausted;
+  progressRef.current = onProgress;
 
   const scanner = useMemo(
     () =>
@@ -41,7 +45,10 @@ export function useAutoDateScanner({
         captureCandidate: () => captureRef.current(),
         onAccepted: (date, photo) => acceptedRef.current(date, photo),
         onExhausted: () => exhaustedRef.current?.(),
-        onProgress: setProgress,
+        onProgress: (p) => {
+          setProgress(p);
+          progressRef.current?.(p);
+        },
         onError: (e) => console.warn("[autoScanner]", e.message),
         continuous,
       }),

@@ -6,10 +6,7 @@ interface LoadingStateProps {
   message?: string;
 }
 
-/**
- * Unified loading state component (centered container with "Cargando..." text).
- * Replaces duplicates in SettingsScreen and app/product/[barcode]/inventory.tsx.
- */
+
 export function LoadingState({ message = "Cargando..." }: LoadingStateProps) {
   return (
     <View style={styles.container}>

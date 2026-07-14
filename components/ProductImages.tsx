@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { StyleSheet, Text, useWindowDimensions, View, Pressable } from "react-native";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -8,7 +8,8 @@ import Animated, {
 } from "react-native-reanimated";
 import Carousel from "react-native-reanimated-carousel";
 import { Image } from "expo-image";
-import { Colors } from "@/constants/theme";
+import { Colors, Spacing, BorderRadius } from "@/constants/theme";
+import { ImageViewer } from "@/components/ImageViewer";
 
 type DotProps = {
   index: number;
@@ -28,12 +29,17 @@ function Dot({ index, progress }: DotProps) {
   return <Animated.View style={[styles.dot, animStyle]} />;
 }
 
-type Props = { images: string[] };
+type Props = {
+  images: string[];
 
-export default function ProductImages({ images }: Props) {
+  labels?: string[];
+};
+
+export default function ProductImages({ images, labels }: Props) {
   const { width: screenWidth } = useWindowDimensions();
   const progress = useSharedValue(0);
   const [page, setPage] = useState(0);
+  const [viewerOpen, setViewerOpen] = useState(false);
 
   if (images.length === 0) return null;
 
@@ -52,13 +58,21 @@ export default function ProductImages({ images }: Props) {
         onProgressChange={(_, abs) => {
           progress.value = abs;
         }}
-        renderItem={({ item }) => (
-          <Image
-            source={item}
-            style={styles.image}
-            contentFit="contain"
-            transition={300}
-          />
+        renderItem={({ item, index }) => (
+          <Pressable
+            onPress={() => {
+              setPage(index);
+              setViewerOpen(true);
+            }}
+            style={styles.imageWrap}
+          >
+            <Image
+              source={item}
+              style={styles.image}
+              contentFit="contain"
+              transition={300}
+            />
+          </Pressable>
         )}
       />
       <View style={styles.footer}>
@@ -71,26 +85,39 @@ export default function ProductImages({ images }: Props) {
           {page + 1}/{images.length}
         </Text>
       </View>
+
+      <ImageViewer
+        images={images}
+        labels={labels}
+        visible={viewerOpen}
+        startIndex={page}
+        onClose={() => setViewerOpen(false)}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   box: {
-    borderRadius: 14,
+    borderRadius: BorderRadius.md,
     overflow: "hidden",
-    marginBottom: 20,
+    marginBottom: Spacing.lg,
     backgroundColor: Colors.surface,
     borderCurve: "continuous",
     boxShadow: "0 2px 8px rgba(0, 0, 0, 0.08)",
+  },
+  imageWrap: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
   image: { width: "100%", height: 300 },
   footer: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
   },
   dots: { flexDirection: "row", gap: 5 },
   dot: {
