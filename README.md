@@ -1,6 +1,14 @@
 <div align="center">
   <img src="assets/icon.png" alt="KuraFud Logo" width="120" height="120" />
   <h1 align="center">KuraFud</h1>
+
+  [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+  [![React Native](https://img.shields.io/badge/React%20Native-0.76-blue.svg)](https://reactnative.dev)
+  [![Expo SDK](https://img.shields.io/badge/Expo%20SDK-56-purple.svg)](https://expo.dev)
+  [![Platform iOS](https://img.shields.io/badge/iOS-13%2B-green.svg)]()
+  [![Platform Android](https://img.shields.io/badge/Android-8%2B-green.svg)]()
+  [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg)](https://www.typescriptlang.org)
+
   <p align="center">
     Never waste food again. Scan barcodes, track expiration dates, and manage your pantry effortlessly.
   </p>
