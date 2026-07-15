@@ -20,6 +20,50 @@ export function formatDateString(date: Date): string {
   return `${day}/${month}/${year}`;
 }
 
+export type DateValidationError =
+  | "empty"
+  | "format"
+  | "monthOutOfRange"
+  | "dayOutOfRange"
+  | "yearTooFarFuture";
+
+export const FAR_FUTURE_YEARS = 4;
+
+export function validateExpiryDate(value: string | undefined): {
+  ok: boolean;
+  reason?: DateValidationError;
+} {
+  if (!value) return { ok: false, reason: "empty" };
+
+  const parts = value.split("/");
+  if (parts.length !== 3) return { ok: false, reason: "format" };
+
+  const day = Number(parts[0]);
+  const month = Number(parts[1]);
+  const year = Number(parts[2]);
+  if (
+    !Number.isFinite(day) ||
+    !Number.isFinite(month) ||
+    !Number.isFinite(year)
+  ) {
+    return { ok: false, reason: "format" };
+  }
+
+  if (month < 1 || month > 12) return { ok: false, reason: "monthOutOfRange" };
+
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  if (day < 1 || day > daysInMonth) {
+    return { ok: false, reason: "dayOutOfRange" };
+  }
+
+  const currentYear = new Date().getFullYear();
+  if (year > currentYear + FAR_FUTURE_YEARS) {
+    return { ok: false, reason: "yearTooFarFuture" };
+  }
+
+  return { ok: true };
+}
+
 export function parseDateString(value: string): Date {
   if (!value) return new Date(8640000000000000);
   const [day, month, year] = value.split("/").map(Number);

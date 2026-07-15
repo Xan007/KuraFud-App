@@ -1,8 +1,15 @@
 import { useCallback, useRef, useState } from "react";
 import { scanSessionRepository } from "@/db/repositories";
 import { scanSession } from "@/db/schema";
-import { emptyProduct } from "types";
-import type { SessionItem } from "@/components/ScanSessionSheet";
+import { emptyProduct, type ProductInfo } from "types";
+
+export type SessionItem = {
+  key: string;
+  barcode: string;
+  product: ProductInfo;
+  date?: string;
+  datePhotoUri?: string;
+};
 
 type ScanSessionUpdatePatch = Partial<
   Omit<typeof scanSession.$inferInsert, "id">

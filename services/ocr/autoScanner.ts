@@ -45,7 +45,7 @@ export function createAutoScanner(config: AutoScannerConfig): AutoScanner {
     minCaptureIntervalMs = 60,
     maxAttempts = Infinity,
     timeoutMs = 4000,
-    voting = { requiredVotes: 1.5, leadMargin: 0.5 },
+    voting = { requiredVotes: 3.0, leadMargin: 0.5 },
     continuous = false,
   } = config;
 
@@ -150,6 +150,11 @@ export function createAutoScanner(config: AutoScannerConfig): AutoScanner {
         votes.reset();
         hasDetectedDate = false;
         clearVotingTimer();
+        // Pausa post-acceptación para evitar re-detectarla inmediato
+        // y que el leader se limpie para que el estado no se quede
+        // en "Confirmando" cuando el usuario ya movió la cámara.
+        lastCaptureAt = Date.now() + 600;
+        report("voted", null, 0, 0);
       }
     } catch (e) {
       onError?.(e instanceof Error ? e : new Error(String(e)));

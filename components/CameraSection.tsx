@@ -74,7 +74,7 @@ const CameraSection = memo(function CameraSection({
         device={device}
         isActive
         enableNativeTapToFocusGesture
-        enableNativeZoomGesture={!hideZoom}
+        enableNativeZoomGesture
         outputs={outputs}
       />
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, StyleSheet, View, Vibration } from "react-native";
+import { Alert, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useFocusEffect } from "expo-router";
 import Animated, { FadeIn } from "react-native-reanimated";
@@ -12,41 +12,18 @@ import { useBarcodeScannerOutput } from "react-native-vision-camera-barcode-scan
 import { AppText } from "@/components/ui/Text";
 import { Button } from "@/components/ui/Button";
 import { DateTimePickerSheet } from "@/components/DateTimePickerSheet";
-import { lookupProduct } from "services/productService";
-import { useAutoDateScanner } from "@/hooks/useAutoDateScanner";
-import { useDateCountdown } from "@/hooks/useDateCountdown";
-import { useCameraControls } from "@/hooks/useCameraControls";
-import { useScanSessionStore } from "@/hooks/useScanSessionStore";
-import { computeRoiRect } from "@/services/ocr/roi";
-import type { Candidate } from "@/services/ocr/autoScanner";
-import { createVoteBox } from "@/services/ocr/voting";
-import { emptyProduct } from "types";
-import { formatDateString, parseDateString } from "@/helpers/format";
-import { isValidBarcode } from "@/helpers/barcode";
+import { NameProductSheet } from "@/components/NameProductSheet";
 import CameraSection from "@/components/CameraSection";
 import type { CameraLayout } from "@/components/CameraSection";
-import ScanSessionSheet, {
-  type SessionItem,
-} from "@/components/ScanSessionSheet";
-import DateScannerOverlay from "@/components/DateScannerOverlay";
-import {
-  productRepository,
-  inventoryRepository,
-  notificationSettingsRepository,
-} from "@/db/repositories";
-import { rebuildAllReminders } from "@/services/notifications";
-import { showToast } from "@/helpers/toast";
+import ScannerHUD, { type GuideRect } from "@/components/scanner/ScannerHUD";
+import SessionTray from "@/components/scanner/SessionTray";
+import { useCameraControls } from "@/hooks/useCameraControls";
+import { useScannerFlow } from "@/hooks/useScannerFlow";
+import { useAutoDateScanner } from "@/hooks/useAutoDateScanner";
 import { useAppTranslation } from "@/hooks/useAppTranslation";
-
-type GuideRect = { x: number; y: number; width: number; height: number };
-
-const BARCODE_COOLDOWN_MS = 6000;
-const GLOBAL_BARCODE_DEBOUNCE_MS = 1200;
-const DATE_DUPLICATE_COOLDOWN_MS = 3000;
-const BARCODE_VOTE_REQUIRED = 1.5;
-const BARCODE_VOTE_LEAD_MARGIN = 0.5;
-
-const FAR_FUTURE_YEARS = 4;
+import { computeRoiRect } from "@/services/ocr/roi";
+import type { Candidate } from "@/services/ocr/autoScanner";
+import { formatDateString, parseDateString } from "@/helpers/format";
 
 export default function BarcodeScannerScreen() {
   const { t } = useAppTranslation();
@@ -63,165 +40,47 @@ export default function BarcodeScannerScreen() {
     handleZoomOut,
   } = useCameraControls({ cameraRef });
 
-  const {
-    items: sessionItems,
-    setItems: setSessionItems,
-    loadPersisted,
-    nextKey,
-    persistNewItem,
-    persistUpdate,
-    persistDelete,
-    clearAll: clearPersistedSession,
-  } = useScanSessionStore();
-
-  const [showDatePicker, setShowDatePicker] = useState(false);
-  const [pendingDate, setPendingDate] = useState(new Date());
-  const [editingItemKey, setEditingItemKey] = useState<string | null>(null);
-  const [activeScanTargetKey, setActiveScanTargetKey] = useState<string | null>(
-    null,
-  );
-  const [sessionVersionKey, setSessionVersionKey] = useState(0);
-  const [finalizing, setFinalizing] = useState(false);
-  const [mode, setMode] = useState<"barcode" | "date">("barcode");
-  const [unitCount, setUnitCount] = useState(0);
-
-  const finalizingRef = useRef(false);
-  const isScanningRef = useRef(true);
-  const lastBarcodeTimeRef = useRef(0);
-  const sessionItemsRef = useRef(sessionItems);
-  sessionItemsRef.current = sessionItems;
-  const guideRectRef = useRef<GuideRect | null>(null);
-  const cameraLayoutRef = useRef<CameraLayout | null>(null);
-  const lastScanTimestampsRef = useRef<Map<string, number>>(new Map());
-  const modeRef = useRef(mode);
-  modeRef.current = mode;
-  const barcodeVoteBoxRef = useRef(
-    createVoteBox({
-      requiredVotes: BARCODE_VOTE_REQUIRED,
-      leadMargin: BARCODE_VOTE_LEAD_MARGIN,
-    }),
-  );
-
-  const countdown = useDateCountdown({
-    onTimeout: () => {
-      setMode("barcode");
-      barcodeVoteBoxRef.current.reset();
-      setUnitCount(0);
-      lastAcceptedDateRef.current = null;
-    },
-  });
-
-  const lastAcceptedDateRef = useRef<string | null>(null);
-  const activeScanTargetKeyRef = useRef<string | null>(null);
-  activeScanTargetKeyRef.current = activeScanTargetKey;
-  const isUserSelectedRef = useRef(false);
-  const lastAcceptedDateTimeRef = useRef(0);
-
   const device = useCameraDevice(cameraPosition);
   const { hasPermission, requestPermission } = useCameraPermission();
 
+  const [focused, setFocused] = useState(true);
+  useFocusEffect(
+    useCallback(() => {
+      setFocused(true);
+      return () => setFocused(false);
+    }, []),
+  );
 
+  const flow = useScannerFlow({ onFinalized: () => router.back() });
+  const { loadPersisted } = flow;
   useEffect(() => {
     loadPersisted();
   }, [loadPersisted]);
 
-  const scannerTargetKey = useMemo(() => {
-    if (activeScanTargetKey) return activeScanTargetKey;
-    for (let i = sessionItems.length - 1; i >= 0; i--) {
-      if (!sessionItems[i].date) return sessionItems[i].key;
-    }
-    return null;
-  }, [activeScanTargetKey, sessionItems]);
-
-  const shouldRunScanner = sessionItems.length > 0;
-
-  useFocusEffect(
-    useCallback(() => {
-      isScanningRef.current = true;
-      lastBarcodeTimeRef.current = Date.now();
-      return () => {
-        isScanningRef.current = false;
-      };
-    }, []),
-  );
-
-  const handleBarcodeScanned = useCallback(
-    async (barcodes: any[]) => {
-      if (!isScanningRef.current || modeRef.current !== "barcode") {
-        return;
-      }
-      if (!barcodes || barcodes.length === 0) return;
-
-      const code = barcodes[0]?.rawValue;
-      if (!code || !isValidBarcode(code)) return;
-
-      const now = Date.now();
-      if (now - lastBarcodeTimeRef.current < GLOBAL_BARCODE_DEBOUNCE_MS) return;
-      lastBarcodeTimeRef.current = now;
-
-      const voteResult = barcodeVoteBoxRef.current.add(code);
-      if (!voteResult.accepted) return;
-
-      const acceptedCode = voteResult.accepted;
-      const lastTime = lastScanTimestampsRef.current.get(acceptedCode);
-      if (lastTime != null && now - lastTime < BARCODE_COOLDOWN_MS) return;
-      lastScanTimestampsRef.current.set(acceptedCode, now);
-
-      barcodeVoteBoxRef.current.reset();
-      Vibration.vibrate(100);
-
-      const key = nextKey();
-      const newItem: SessionItem = {
-        key,
-        barcode: acceptedCode,
-        product: { ...emptyProduct, barcode: acceptedCode },
-      };
-
-      setSessionItems((prev) => [...prev, newItem]);
-      setActiveScanTargetKey(key);
-      isUserSelectedRef.current = false;
-      setMode("date");
-      setUnitCount(0);
-      countdown.bumpActivity();
-
-      try {
-        await persistNewItem(newItem);
-        const result = await lookupProduct(acceptedCode);
-        if (result.kind === "found") {
-          const p = result.product;
-          setSessionItems((prev) =>
-            prev.map((item) =>
-              item.key === key ? { ...item, product: p } : item,
-            ),
-          );
-          await persistUpdate(key, { productJson: JSON.stringify(p) });
-        } else if (result.kind === "offline") {
-          showToast(t("scanner.connectionError"));
-        } else {
-          showToast(t("scanner.productNotFound"));
-        }
-      } catch {
-        showToast(t("scanner.connectionError"));
-      }
-    },
-
-    [t, nextKey, persistNewItem, persistUpdate],
-  );
-
-  const handleError = useCallback((error: Error) => {
+  // ── Código de barras ────────────────────────────────────────────────
+  const handleScannerError = useCallback((error: Error) => {
     console.warn("Scanner error:", error);
   }, []);
 
   const barcodeOptions = useMemo(
     () => ({
       barcodeFormats: ["ean-13", "ean-8", "upc-a", "upc-e"] as any,
-      onBarcodeScanned: handleBarcodeScanned,
-      onError: handleError,
+      onBarcodeScanned: flow.onBarcodesDetected,
+      onError: handleScannerError,
     }),
-    [handleBarcodeScanned, handleError],
+    [flow.onBarcodesDetected, handleScannerError],
   );
 
   const scannerOutput = useBarcodeScannerOutput(barcodeOptions);
+
+  const outputs = useMemo(
+    () => (focused && flow.phase === "barcode" ? [scannerOutput] : []),
+    [focused, flow.phase, scannerOutput],
+  );
+
+  // ── OCR de fecha ────────────────────────────────────────────────────
+  const cameraLayoutRef = useRef<CameraLayout | null>(null);
+  const guideRectRef = useRef<GuideRect | null>(null);
 
   const handleCameraLayout = useCallback((layout: CameraLayout) => {
     cameraLayoutRef.current = layout;
@@ -268,288 +127,193 @@ export default function BarcodeScannerScreen() {
     }
   }, []);
 
-  const scannerTargetKeyRef = useRef<string | null>(null);
-  scannerTargetKeyRef.current = scannerTargetKey;
-
-  const handleDateAccepted = useCallback(
-    (date: string, photoUri: string) => {
-      const year = Number(date.split("/")[2]);
-      const currentYear = new Date().getFullYear();
-      if (year > currentYear + FAR_FUTURE_YEARS) {
-        showToast(t("scanner.dateFarInFuture", { year }));
-      }
-
-      const targetKey = scannerTargetKeyRef.current;
-      if (!targetKey) return;
-
-      const targetItem = sessionItemsRef.current.find((i) => i.key === targetKey);
-      if (!targetItem) return;
-
-      countdown.bumpActivity();
-      lastAcceptedDateRef.current = date;
-      const acceptedNow = Date.now();
-
-      const shouldUpdate = isUserSelectedRef.current;
-
-      if (targetItem.date && !shouldUpdate) {
-        const timeSinceLastAccepted = acceptedNow - lastAcceptedDateTimeRef.current;
-        const isSameDateRecently =
-          lastAcceptedDateRef.current === date &&
-          timeSinceLastAccepted < DATE_DUPLICATE_COOLDOWN_MS;
-
-        if (isSameDateRecently) return;
-
-        const key = nextKey();
-        const clonedItem: SessionItem = {
-          key,
-          barcode: targetItem.barcode,
-          product: targetItem.product,
-          date,
-          datePhotoUri: photoUri,
-        };
-
-        setSessionItems((prev) => [...prev, clonedItem]);
-        setUnitCount((prev) => prev + 1);
-
-        persistNewItem(clonedItem).catch(() => {});
-
-        Vibration.vibrate(100);
-        showToast(t("scanner.unitAdded", { count: unitCount + 1, date }));
-      } else {
-        setSessionItems((prev) =>
-          prev.map((item) =>
-            item.key === targetKey
-              ? { ...item, date, datePhotoUri: photoUri }
-              : item,
-          ),
-        );
-        setUnitCount(1);
-
-        persistUpdate(targetKey, { date, datePhotoUri: photoUri }).catch(() => {});
-
-        Vibration.vibrate(100);
-      }
-
-      lastAcceptedDateTimeRef.current = acceptedNow;
+  const handleOcrProgress = useCallback(
+    (p: { leader: string | null }) => {
+      flow.onDateActivity(p?.leader ?? null);
     },
-    [t, unitCount, nextKey, persistNewItem, persistUpdate, countdown],
-  );
-
-  const handleDateExhausted = useCallback(() => {
-    showToast(t("scanner.dateNotDetected"));
-  }, [t]);
-
-  const handleNextProduct = useCallback(() => {
-    setMode("barcode");
-    barcodeVoteBoxRef.current.reset();
-    setUnitCount(0);
-    lastAcceptedDateRef.current = null;
-    countdown.setActive(false);
-  }, [countdown]);
-
-  const handleNoDate = useCallback(() => {
-    handleNextProduct();
-  }, [handleNextProduct]);
-
-  useEffect(() => {
-    countdown.setActive(mode === "date");
-  }, [mode, countdown]);
-
-  const handleOCRProgress = useCallback(
-    (p: any) => {
-      if (p?.leader || p?.reads) {
-        countdown.bumpActivity();
-      }
-    },
-    [countdown],
+    [flow.onDateActivity],
   );
 
   const {
-    start: startAutoScan,
-    stop: stopAutoScan,
+    start: startDateScan,
+    stop: stopDateScan,
     progress,
   } = useAutoDateScanner({
     captureCandidate,
-    onAccepted: handleDateAccepted,
-    onExhausted: handleDateExhausted,
-    onProgress: handleOCRProgress,
+    onAccepted: flow.onDateCandidate,
+    onProgress: handleOcrProgress,
     continuous: true,
   });
 
-  const outputs = useMemo(
-    () => (mode === "barcode" && isScanningRef.current ? [scannerOutput] : []),
-    [scannerOutput, mode],
+  useEffect(() => {
+    if (focused && flow.phase === "date") {
+      startDateScan();
+      return stopDateScan;
+    }
+  }, [focused, flow.phase, startDateScan, stopDateScan]);
+
+  // ── Edición manual de fecha ─────────────────────────────────────────
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [pendingDate, setPendingDate] = useState(new Date());
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+
+  const handleSelectItem = useCallback(
+    (key: string) => {
+      flow.selectItem(key);
+    },
+    [flow.selectItem],
   );
 
-  useEffect(() => {
-    if (shouldRunScanner && mode === "date") {
-      startAutoScan();
-      return () => stopAutoScan();
-    }
-  }, [shouldRunScanner, mode, startAutoScan, stopAutoScan]);
-
-  const prevTargetRef = useRef(scannerTargetKey);
-  useEffect(() => {
-    if (shouldRunScanner && scannerTargetKey !== prevTargetRef.current) {
-      prevTargetRef.current = scannerTargetKey;
-      if (scannerTargetKey) {
-        stopAutoScan();
-        startAutoScan();
+  const handleEditDate = useCallback(
+    (key: string) => {
+      const item = flow.items.find((i) => i.key === key);
+      if (item?.date) {
+        setPendingDate(parseDateString(item.date));
+      } else {
+        const today = new Date();
+        setPendingDate(
+          new Date(
+            Date.UTC(
+              today.getUTCFullYear(),
+              today.getUTCMonth(),
+              today.getUTCDate(),
+            ),
+          ),
+        );
       }
+      setEditingKey(key);
+      setShowDatePicker(true);
+    },
+    [flow.items],
+  );
+
+  const handleDatePickerConfirm = useCallback(() => {
+    if (editingKey) {
+      flow.setItemDate(editingKey, formatDateString(pendingDate));
     }
-  }, [scannerTargetKey, shouldRunScanner, startAutoScan, stopAutoScan]);
+    setShowDatePicker(false);
+    setEditingKey(null);
+  }, [editingKey, pendingDate, flow.setItemDate]);
 
-  const handleFinalize = useCallback(async () => {
-    if (finalizingRef.current) return;
-    finalizingRef.current = true;
-    setFinalizing(true);
+  const handleDatePickerCancel = useCallback(() => {
+    setShowDatePicker(false);
+    setEditingKey(null);
+  }, []);
 
-    try {
-      const items = sessionItemsRef.current;
-
-      await Promise.all(
-        items.map(async (item) => {
-          const p = item.product;
-          await productRepository.upsertProduct({
-            barcode: p.barcode,
-            name: p.name,
-            brand: p.brand,
-            quantity: p.quantity,
-            ingredients: p.ingredients,
-            imageFrontUrl: p.imageFrontUrl,
-            categories: p.categories,
-            nutriscore: p.nutriscore,
-            dataJson: JSON.stringify(p),
-            createdAt: new Date(),
-          });
-
-          if (item.date) {
-            await inventoryRepository.addInventoryItem({
-              barcode: item.product.barcode,
-              expirationDate: item.date,
-              datePhotoUri: item.datePhotoUri ?? null,
-              createdAt: new Date(),
-            });
-          }
-        }),
-      );
-
-      await clearPersistedSession();
-
-      setSessionItems([]);
-      setMode("barcode");
-      setUnitCount(0);
-      barcodeVoteBoxRef.current.reset();
-      lastAcceptedDateRef.current = null;
-      countdown.setActive(false);
-      isScanningRef.current = true;
-      showToast(t("scanner.productSaved"));
-
-      try {
-        const settings =
-          await notificationSettingsRepository.getNotificationSettings();
-        if (settings.enabled) {
-          await rebuildAllReminders();
-        }
-      } catch {
-
-      }
-    } catch (e) {
-      console.warn("handleFinalize error:", e);
-      showToast(t("messages.errorSaving"));
-    } finally {
-      finalizingRef.current = false;
-      setFinalizing(false);
-    }
-  }, [t, clearPersistedSession, countdown]);
-
-  const handleCancelSession = useCallback(() => {
-    const count = sessionItemsRef.current.length;
+  // ── Cancelar sesión ─────────────────────────────────────────────────
+  const handleClearSession = useCallback(() => {
     Alert.alert(
       t("scanner.cancelSessionTitle"),
-      t("scanner.cancelSessionBody", { count }),
+      t("scanner.cancelSessionBody", { count: flow.items.length }),
       [
-        {
-          text: t("scanner.continueScanning"),
-          style: "cancel",
-          onPress: () => {
-            setSessionVersionKey((k) => k + 1);
-          },
-        },
+        { text: t("scanner.continueScanning"), style: "cancel" },
         {
           text: t("scanner.cancelAll"),
           style: "destructive",
-          onPress: async () => {
-            await clearPersistedSession();
-            setSessionItems([]);
-            setMode("barcode");
-            setUnitCount(0);
-            barcodeVoteBoxRef.current.reset();
-            lastAcceptedDateRef.current = null;
-            countdown.setActive(false);
-            isScanningRef.current = true;
+          onPress: () => {
+            flow.clearSession().catch(() => {});
           },
         },
       ],
     );
-  }, [t, clearPersistedSession, countdown]);
+  }, [t, flow.items.length, flow.clearSession]);
 
-  const handleRemoveItem = useCallback((key: string) => {
-    persistDelete(key).catch(() => {});
-    setActiveScanTargetKey((prev) => (prev === key ? null : prev));
-    prevTargetRef.current = null;
-    setSessionItems((prev) => prev.filter((item) => item.key !== key));
-  }, [persistDelete]);
-
-  const handleScanDate = useCallback((key: string) => {
-    setActiveScanTargetKey((prev) => {
-      const newKey = prev === key ? null : key;
-      isUserSelectedRef.current = newKey !== null;
-      return newKey;
-    });
-  }, []);
-
-  const handleEditDate = useCallback((key: string) => {
-    const item = sessionItemsRef.current.find((i) => i.key === key);
-    if (item?.date) {
-      const parsed = parseDateString(item.date);
-      setPendingDate(parsed);
+  // ── Guardar con verificación de nombres ─────────────────────────────
+  const handleSave = useCallback(() => {
+    const nameless = flow.items.filter((i) => !i.product.name);
+    if (nameless.length > 0) {
+      savingRef.current = true;
+      setNameSheetQueue(nameless.map((i) => i.key));
+      setNameSheetIndex(0);
     } else {
-      const today = new Date();
-      const todayUTC = new Date(
-        Date.UTC(
-          today.getUTCFullYear(),
-          today.getUTCMonth(),
-          today.getUTCDate(),
-        ),
-      );
-      setPendingDate(todayUTC);
+      flow.finalize();
     }
-    setEditingItemKey(key);
-    setShowDatePicker(true);
+  }, [flow.items, flow.finalize]);
+
+  // ── Texto de estado ─────────────────────────────────────────────────
+  const statusText =
+    flow.phase === "barcode"
+      ? t("scanner.pointBarcode")
+      : progress?.leader
+        ? t("scanner.confirmingDate", { date: progress.leader })
+        : t("scanner.searchingDate");
+
+  // ── Nombrar productos ──────────────────────────────────────────────
+  const [nameSheetQueue, setNameSheetQueue] = useState<string[]>([]);
+  const [nameSheetIndex, setNameSheetIndex] = useState(0);
+  const savingRef = useRef(false);
+
+  const currentNameKey = nameSheetQueue[nameSheetIndex] ?? null;
+  const currentNameItem = useMemo(
+    () => (currentNameKey ? flow.items.find((i) => i.key === currentNameKey) ?? null : null),
+    [currentNameKey, flow.items],
+  );
+
+  const handleRequestName = useCallback(
+    (key: string) => {
+      savingRef.current = false;
+      setNameSheetQueue([key]);
+      setNameSheetIndex(0);
+    },
+    [],
+  );
+
+  const handleNameConfirm = useCallback(
+    (name: string, photoUri?: string) => {
+      const key = nameSheetQueue[nameSheetIndex];
+      if (key) flow.setItemProductName(key, name, photoUri);
+      const next = nameSheetIndex + 1;
+      if (next < nameSheetQueue.length) {
+        setNameSheetIndex(next);
+      } else {
+        const wasSaving = savingRef.current;
+        savingRef.current = false;
+        setNameSheetQueue([]);
+        setNameSheetIndex(0);
+        if (wasSaving) flow.finalize();
+      }
+    },
+    [nameSheetQueue, nameSheetIndex, flow.setItemProductName, flow.finalize],
+  );
+
+  const handleNameSkip = useCallback(() => {
+    savingRef.current = false;
+    setNameSheetQueue([]);
+    setNameSheetIndex(0);
   }, []);
 
-  const handleDatePickerConfirm = useCallback(() => {
-    const formatted = formatDateString(pendingDate);
+  // ── Cuenta regresiva de idle en fase date ──────────────────────────
+  const [countdownSeconds, setCountdownSeconds] = useState<number | null>(null);
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const idleDeadlineRef = useRef<number | null>(null);
+  const hasLeaderRef = useRef(false);
 
-    if (editingItemKey) {
-      setSessionItems((prev) =>
-        prev.map((item) =>
-          item.key === editingItemKey ? { ...item, date: formatted } : item,
-        ),
-      );
+  idleDeadlineRef.current = flow.idleDeadline;
+  hasLeaderRef.current = !!progress?.leader;
 
-      persistUpdate(editingItemKey, { date: formatted }).catch(() => {});
-      setActiveScanTargetKey((prev) => (prev === editingItemKey ? null : prev));
+  useEffect(() => {
+    if (flow.phase !== "date") {
+      setCountdownSeconds(null);
+      return;
     }
-    setShowDatePicker(false);
-    setEditingItemKey(null);
-  }, [pendingDate, editingItemKey, persistUpdate]);
-
-  const handleDatePickerCancel = useCallback(() => {
-    setShowDatePicker(false);
-    setEditingItemKey(null);
-  }, []);
+    const tick = () => {
+      const deadline = idleDeadlineRef.current;
+      if (deadline == null || hasLeaderRef.current) {
+        setCountdownSeconds(null);
+        return;
+      }
+      const remaining = Math.ceil(Math.max(0, (deadline - Date.now()) / 1000));
+      setCountdownSeconds(remaining > 0 ? remaining : null);
+    };
+    tick();
+    countdownRef.current = setInterval(tick, 250);
+    return () => {
+      if (countdownRef.current) {
+        clearInterval(countdownRef.current);
+        countdownRef.current = null;
+      }
+    };
+  }, [flow.phase]);
 
   if (hasPermission === false) {
     return (
@@ -592,61 +356,48 @@ export default function BarcodeScannerScreen() {
         onToggleCamera={toggleCamera}
         onZoomIn={handleZoomIn}
         onZoomOut={handleZoomOut}
-        onBack={() => {
-          isScanningRef.current = true;
-          router.back();
-        }}
+        onBack={() => router.back()}
         insets={insets}
         hasTorch={device.hasTorch ?? false}
         onCameraLayout={handleCameraLayout}
+        hideZoom
+        hideFlip
       />
 
-      {shouldRunScanner && mode === "date" && (
-        <DateScannerOverlay
-          onLayoutGuide={handleGuideLayout}
-          statusText={
-            progress && progress.leader
-              ? t("scanner.confirmingDate", { date: progress.leader })
-              : t("scanner.searchingDate")
-          }
-          countdownSeconds={countdown.countdownSeconds}
-        />
-      )}
+      <ScannerHUD
+        phase={flow.phase}
+        statusText={statusText}
+        feedback={flow.feedback}
+        countdownSeconds={countdownSeconds}
+        onSkipDate={flow.skipDate}
+        onGuideLayout={handleGuideLayout}
+      />
 
-      {mode === "date" && shouldRunScanner && (
-        <View style={styles.datePhaseControls}>
-          <Button
-            variant="primary"
-            size="sm"
-            onPress={handleNextProduct}
-            style={styles.controlBtn}
-          >
-            {t("scanner.nextProduct")}
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            onPress={handleNoDate}
-            style={styles.controlBtn}
-          >
-            {t("scanner.noDate")}
-          </Button>
-        </View>
-      )}
-
-      {sessionItems.length > 0 && (
-        <ScanSessionSheet
-          key={sessionVersionKey}
-          items={sessionItems}
-          selectedKey={scannerTargetKey}
-          finalizing={finalizing}
-          onSelectItem={handleScanDate}
-          onRemoveItem={handleRemoveItem}
+      {flow.items.length > 0 && (
+        <SessionTray
+          items={flow.items}
+          activeKey={flow.targetKey}
+          finalizing={flow.finalizing}
+          onSelectItem={handleSelectItem}
+          onRequestName={handleRequestName}
           onEditDate={handleEditDate}
-          onFinalize={handleFinalize}
-          onCancel={handleCancelSession}
+          onRemove={flow.removeItem}
+          onSave={handleSave}
+          onClear={handleClearSession}
         />
       )}
+
+      <NameProductSheet
+        visible={nameSheetQueue.length > 0}
+        barcode={currentNameItem?.barcode ?? ""}
+        currentName={currentNameItem?.product.name ?? ""}
+        currentPhotoUri={currentNameItem?.product.imageFrontUrl ?? ""}
+        index={nameSheetIndex}
+        total={nameSheetQueue.length}
+        hideSkip={savingRef.current || nameSheetQueue.length > 1}
+        onConfirm={handleNameConfirm}
+        onSkip={handleNameSkip}
+      />
 
       <DateTimePickerSheet
         visible={showDatePicker}
@@ -666,19 +417,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     padding: 24,
+    gap: 12,
   },
   msg: {
     marginBottom: 16,
     textAlign: "center",
-  },
-  datePhaseControls: {
-    position: "absolute",
-    bottom: 20,
-    left: 16,
-    right: 16,
-    gap: 8,
-  },
-  controlBtn: {
-    width: "100%",
   },
 });
