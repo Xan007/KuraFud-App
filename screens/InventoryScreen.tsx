@@ -181,8 +181,8 @@ const InventoryListItem = memo(function InventoryListItem({
     onPress(item.barcode);
   }, [onPress, item.barcode]);
   return (
-    <View style={isGridView && styles.gridItemWrap}>
-      <InventoryProductCard
+      <View style={isGridView && { width: gridItemWidth }}>
+        <InventoryProductCard
         barcode={item.barcode}
         name={item.name}
         brand={item.brand}
@@ -288,11 +288,18 @@ export default function InventoryScreen() {
   const isGridView = viewMode === "grid";
   const numColumns = isGridView ? 3 : 1;
 
-
   const gridItemWidth =
     Math.floor(
-      (width - Spacing.lg * 2 - Spacing.xs * (numColumns - 1)) / numColumns,
-    ) - 4;
+      (width - Spacing.lg * 2 - Spacing.sm * (numColumns - 1)) / numColumns,
+    );
+
+  const paddedProducts = useMemo(() => {
+    if (!isGridView) return visibleProducts;
+    const remainder = visibleProducts.length % 3;
+    if (remainder === 0) return visibleProducts;
+    const pad = 3 - remainder;
+    return [...visibleProducts, ...Array(pad).fill(null)];
+  }, [visibleProducts, isGridView]);
 
   const contentStyle = useMemo(
     () => [
@@ -312,20 +319,23 @@ export default function InventoryScreen() {
   );
 
   const renderItem = useCallback(
-    ({ item }: { item: GroupedProduct }) => (
-      <InventoryListItem
-        item={item}
-        isGridView={isGridView}
-        gridItemWidth={gridItemWidth}
-        isExpired={item.hasExpired && !item.hasActive}
-        onPress={handleCardPress}
-      />
-    ),
+    ({ item }: { item: GroupedProduct | null }) => {
+      if (!item) return <View style={{ width: gridItemWidth }} />;
+      return (
+        <InventoryListItem
+          item={item}
+          isGridView={isGridView}
+          gridItemWidth={gridItemWidth}
+          isExpired={item.hasExpired && !item.hasActive}
+          onPress={handleCardPress}
+        />
+      );
+    },
     [handleCardPress, isGridView, gridItemWidth],
   );
 
   const keyExtractor = useCallback(
-    (item: GroupedProduct) => item.barcode,
+    (item: GroupedProduct | null, idx: number) => item?.barcode ?? `spacer-${idx}`,
     [],
   );
 
@@ -356,7 +366,7 @@ export default function InventoryScreen() {
           onChangeText={setSearch}
         />
 
-        <View style={styles.chipsRow}>
+        <View style={styles.row}>
           <FilterChips
             selected={filter}
             options={FILTERS}
@@ -369,6 +379,10 @@ export default function InventoryScreen() {
                   : t("inventory.filterExpired")
             }
           />
+          <ViewToggle viewMode={viewMode} onViewChange={setViewMode} />
+        </View>
+
+        <View style={styles.toolsRow}>
           <SortButton
             currentLabel={sortLabelFor(sortBy)}
             options={SORT_OPTIONS}
@@ -376,11 +390,6 @@ export default function InventoryScreen() {
             onSelect={setSortBy}
             prefixLabel={t("inventory.sortByLabel")}
           />
-        </View>
-
-        <View style={styles.toolsRow}>
-          <ViewToggle viewMode={viewMode} onViewChange={setViewMode} />
-          <View style={{ flex: 1 }} />
           <SortDirButton
             dir={sortDir}
             onChange={(d) => setSortDir(d)}
@@ -390,7 +399,7 @@ export default function InventoryScreen() {
       </View>
 
       <FlatList
-        data={visibleProducts}
+        data={paddedProducts}
         keyExtractor={keyExtractor}
         renderItem={renderItem}
         style={{ flex: 1 }}
@@ -815,15 +824,15 @@ const styles = StyleSheet.create({
   searchClearBtn: {
     padding: Spacing.xs,
   },
-  chipsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
   toolsRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: Spacing.xs,
+    gap: Spacing.sm,
+  },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
   chipsGroup: {
     flexDirection: "row",
@@ -906,15 +915,15 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
   gridListContent: {
-    paddingHorizontal: Spacing.md,
+    paddingHorizontal: Spacing.lg,
   },
   listContentEmpty: {
     justifyContent: "center",
   },
   gridRow: {
-    gap: Spacing.xs,
+    gap: Spacing.sm,
+    justifyContent: "center",
   },
-  gridItemWrap: { flex: 1 },
   fabContainer: {
     position: "absolute",
     right: 16,
