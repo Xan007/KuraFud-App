@@ -12,9 +12,6 @@
       "backgroundColor": "#34A853",
       "resizeMode": "contain"
     },
-    "experiments": {
-      "newArchEnabled": true
-    },
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
@@ -26,7 +23,6 @@
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundColor": "#34A853"
       },
-
       "predictiveBackGestureEnabled": false,
       "package": "com.anonymous.KuraFud",
       "permissions": [
@@ -54,6 +50,12 @@
           "sounds": []
         }
       ]
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "54b74762-df98-44c9-85cb-10b54dcab7a3"
+      }
+    }
   }
 }
